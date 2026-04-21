@@ -7,7 +7,7 @@ const { Server } = require("socket.io");
 const cors = require("cors");
 const mongoose = require("mongoose");
 
-// 🔥 REDIS
+// 🔥 REDIS (only used if URL provided)
 const { createAdapter } = require("@socket.io/redis-adapter");
 const { createClient } = require("redis");
 
@@ -121,17 +121,17 @@ const io = new Server(server, {
 });
 
 // =======================
-// 🔥 REDIS SETUP
+// 🔥 REDIS SETUP (SAFE)
 // =======================
 async function setupRedis() {
+  const redisUrl = process.env.REDIS_URI;
+
+  if (!redisUrl) {
+    console.log("⚠️ No Redis → skipping completely");
+    return;
+  }
+
   try {
-    const redisUrl = process.env.REDIS_URI;
-
-    if (!redisUrl) {
-      console.log("⚠️ No Redis → running without adapter");
-      return;
-    }
-
     const pubClient = createClient({ url: redisUrl });
     const subClient = pubClient.duplicate();
 
@@ -170,7 +170,7 @@ io.on("connection", (socket) => {
 });
 
 // =======================
-// 🚀 START SERVER (FIXED)
+// 🚀 START SERVER
 // =======================
 const PORT = process.env.PORT || 5000;
 
@@ -178,16 +178,17 @@ async function startServer() {
   try {
     await connectDB();
 
-    await setupRedis();
+    await setupRedis(); // safe (won’t run without REDIS_URI)
 
     await connectProducer();
+    console.log("🔥 Kafka Producer Connected");
 
-    // 🚀 START SERVER FIRST (IMPORTANT)
+    // ✅ Start server FIRST
     server.listen(PORT, "0.0.0.0", () => {
       console.log(`🚀 Server running on port ${PORT}`);
     });
 
-    // 🚀 START CONSUMER IN BACKGROUND
+    // ✅ Start consumer WITHOUT blocking
     setTimeout(() => {
       console.log("🔥 Starting Kafka consumer...");
       startConsumer(io).catch((err) =>
