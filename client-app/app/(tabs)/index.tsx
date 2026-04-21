@@ -5,17 +5,28 @@ import {
   ActivityIndicator,
   TouchableOpacity,
   ScrollView,
-  Alert,
+  Platform,
 } from "react-native";
+
 import { useEffect, useState, useRef } from "react";
 import axios from "axios";
 import { connectSocket, getSocket } from "../../services/socket";
 import * as Location from "expo-location";
-import MapView, { Marker, AnimatedRegion, Circle } from "react-native-maps";
 import * as Speech from "expo-speech";
 import { Linking } from "react-native";
 
-// 🔥 USE YOUR EC2 IP
+// ✅ FIX: conditional import
+let MapView: any, Marker: any, AnimatedRegion: any, Circle: any;
+
+if (Platform.OS !== "web") {
+  const maps = require("react-native-maps");
+  MapView = maps.default;
+  Marker = maps.Marker;
+  AnimatedRegion = maps.AnimatedRegion;
+  Circle = maps.Circle;
+}
+
+// 🔥 YOUR EC2 BACKEND
 const BASE_URL = "http://34.233.135.146:5001";
 
 const EVENT = {
@@ -32,12 +43,14 @@ export default function HomeScreen() {
   const [currentGate, setCurrentGate] = useState<any>(null);
 
   const markerRef = useRef(
-    new AnimatedRegion({
-      latitude: EVENT.lat,
-      longitude: EVENT.lng,
-      latitudeDelta: 0.01,
-      longitudeDelta: 0.01,
-    })
+    Platform.OS !== "web"
+      ? new AnimatedRegion({
+          latitude: EVENT.lat,
+          longitude: EVENT.lng,
+          latitudeDelta: 0.01,
+          longitudeDelta: 0.01,
+        })
+      : null
   ).current;
 
   useEffect(() => {
@@ -51,7 +64,7 @@ export default function HomeScreen() {
   };
 
   // ======================
-  // 🔌 SOCKET SETUP
+  // 🔌 SOCKET
   // ======================
   const setupSocket = () => {
     connectSocket();
@@ -79,9 +92,6 @@ export default function HomeScreen() {
   // ======================
   const getLocation = async () => {
     try {
-      const enabled = await Location.hasServicesEnabledAsync();
-      if (!enabled) return setLocationError(true);
-
       const { status } =
         await Location.requestForegroundPermissionsAsync();
 
@@ -89,7 +99,8 @@ export default function HomeScreen() {
 
       const loc = await Location.getCurrentPositionAsync({});
       setLocation(loc.coords);
-      markerRef.setValue(loc.coords);
+
+      if (markerRef) markerRef.setValue(loc.coords);
     } catch {
       setLocationError(true);
     }
@@ -102,7 +113,7 @@ export default function HomeScreen() {
     try {
       const res = await axios.get(`${BASE_URL}/zones`);
       setZones(res.data || []);
-    } catch (err) {
+    } catch (err: any) {
       console.log("API Error:", err.message);
     }
     setLoading(false);
@@ -128,18 +139,18 @@ export default function HomeScreen() {
   const isEvent = () => {
     if (!location) return false;
 
-    const dist = getDistance(
-      location.latitude,
-      location.longitude,
-      EVENT.lat,
-      EVENT.lng
+    return (
+      getDistance(
+        location.latitude,
+        location.longitude,
+        EVENT.lat,
+        EVENT.lng
+      ) <= EVENT.radius
     );
-
-    return dist <= EVENT.radius;
   };
 
   // ======================
-  // 🧠 SMART LOGIC
+  // 🧠 LOGIC
   // ======================
   const gatesWithData =
     zones.length > 0 && location
@@ -152,7 +163,6 @@ export default function HomeScreen() {
           );
 
           const waitTime = Math.round(z.crowdLevel * 0.2);
-
           const score = waitTime * 0.6 + dist * 0.4;
 
           return { ...z, distance: dist, waitTime, score };
@@ -164,7 +174,6 @@ export default function HomeScreen() {
       ? [...gatesWithData].sort((a, b) => a.score - b.score)[0]
       : null;
 
-  // 🎯 VOICE GUIDANCE
   useEffect(() => {
     if (bestGate && bestGate !== currentGate) {
       setCurrentGate(bestGate);
@@ -180,6 +189,22 @@ export default function HomeScreen() {
       `https://www.google.com/maps/dir/?api=1&origin=${location.latitude},${location.longitude}&destination=${gate.lat},${gate.lng}`
     );
   };
+
+  // ======================
+  // 🖥️ WEB FALLBACK
+  // ======================
+  if (Platform.OS === "web") {
+    return (
+      <View style={styles.center}>
+        <Text style={{ color: "white" }}>
+          🖥️ Map not supported on web
+        </Text>
+        <Text style={{ color: "gray" }}>
+          Use mobile for map view
+        </Text>
+      </View>
+    );
+  }
 
   // ======================
   // UI STATES
@@ -212,7 +237,7 @@ export default function HomeScreen() {
   }
 
   // ======================
-  // 🗺️ MAIN UI
+  // 🗺️ MAP UI
   // ======================
   return (
     <View style={{ flex: 1 }}>
@@ -276,8 +301,9 @@ export default function HomeScreen() {
   );
 }
 
+// ======================
 const styles = StyleSheet.create({
-  center: { flex: 1, justifyContent: "center", alignItems: "center" },
+  center: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#020617" },
   home: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#020617" },
   title: { color: "white", fontSize: 22 },
   panel: { position: "absolute", bottom: 0, width: "100%", maxHeight: 320, backgroundColor: "#020617" },
