@@ -15,18 +15,16 @@ import * as Location from "expo-location";
 import * as Speech from "expo-speech";
 import { Linking } from "react-native";
 
-// ✅ FIX: conditional import
-let MapView: any, Marker: any, AnimatedRegion: any, Circle: any;
+// ✅ SAFE MAP IMPORT
+let MapView: any, Marker: any, Circle: any;
 
 if (Platform.OS !== "web") {
   const maps = require("react-native-maps");
   MapView = maps.default;
   Marker = maps.Marker;
-  AnimatedRegion = maps.AnimatedRegion;
   Circle = maps.Circle;
 }
 
-// 🔥 YOUR EC2 BACKEND
 const BASE_URL = "http://34.233.135.146:5001";
 
 const EVENT = {
@@ -42,16 +40,7 @@ export default function HomeScreen() {
   const [locationError, setLocationError] = useState(false);
   const [currentGate, setCurrentGate] = useState<any>(null);
 
-  const markerRef = useRef(
-    Platform.OS !== "web"
-      ? new AnimatedRegion({
-          latitude: EVENT.lat,
-          longitude: EVENT.lng,
-          latitudeDelta: 0.01,
-          longitudeDelta: 0.01,
-        })
-      : null
-  ).current;
+  const markerRef = useRef(null);
 
   useEffect(() => {
     init();
@@ -63,9 +52,7 @@ export default function HomeScreen() {
     await fetchZones();
   };
 
-  // ======================
   // 🔌 SOCKET
-  // ======================
   const setupSocket = () => {
     connectSocket();
     const socket = getSocket();
@@ -87,9 +74,7 @@ export default function HomeScreen() {
     });
   };
 
-  // ======================
   // 📍 LOCATION
-  // ======================
   const getLocation = async () => {
     try {
       const { status } =
@@ -99,16 +84,12 @@ export default function HomeScreen() {
 
       const loc = await Location.getCurrentPositionAsync({});
       setLocation(loc.coords);
-
-      if (markerRef) markerRef.setValue(loc.coords);
     } catch {
       setLocationError(true);
     }
   };
 
-  // ======================
   // 🌐 FETCH ZONES
-  // ======================
   const fetchZones = async () => {
     try {
       const res = await axios.get(`${BASE_URL}/zones`);
@@ -119,9 +100,7 @@ export default function HomeScreen() {
     setLoading(false);
   };
 
-  // ======================
   // 📏 DISTANCE
-  // ======================
   const getDistance = (lat1, lon1, lat2, lon2) => {
     const R = 6371;
     const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -149,9 +128,7 @@ export default function HomeScreen() {
     );
   };
 
-  // ======================
   // 🧠 LOGIC
-  // ======================
   const gatesWithData =
     zones.length > 0 && location
       ? zones.map((z) => {
@@ -190,9 +167,7 @@ export default function HomeScreen() {
     );
   };
 
-  // ======================
   // 🖥️ WEB FALLBACK
-  // ======================
   if (Platform.OS === "web") {
     return (
       <View style={styles.center}>
@@ -206,9 +181,7 @@ export default function HomeScreen() {
     );
   }
 
-  // ======================
-  // UI STATES
-  // ======================
+  // ⏳ LOADING
   if (loading) {
     return (
       <View style={styles.center}>
@@ -217,6 +190,7 @@ export default function HomeScreen() {
     );
   }
 
+  // ❌ LOCATION ERROR
   if (locationError || !location) {
     return (
       <View style={styles.home}>
@@ -228,6 +202,7 @@ export default function HomeScreen() {
     );
   }
 
+  // ❌ NOT IN EVENT
   if (!isEvent()) {
     return (
       <View style={styles.home}>
@@ -236,9 +211,7 @@ export default function HomeScreen() {
     );
   }
 
-  // ======================
   // 🗺️ MAP UI
-  // ======================
   return (
     <View style={{ flex: 1 }}>
       <MapView
@@ -257,7 +230,8 @@ export default function HomeScreen() {
           strokeColor="#22c55e"
         />
 
-        <Marker.Animated coordinate={markerRef} />
+        {/* ✅ FIXED (NO Animated Marker) */}
+        <Marker coordinate={location} title="You" />
 
         {zones.map((z, i) => (
           <Marker
@@ -279,29 +253,11 @@ export default function HomeScreen() {
             </Text>
           </View>
         )}
-
-        {gatesWithData.map((g, i) => (
-          <View key={i} style={styles.card}>
-            <Text style={styles.gate}>{g.name}</Text>
-            <Text style={styles.text}>{Math.round(g.distance)}m</Text>
-            <Text style={styles.text}>
-              Wait: {g.waitTime} min
-            </Text>
-
-            <TouchableOpacity
-              style={styles.btn}
-              onPress={() => navigate(g)}
-            >
-              <Text style={styles.btnText}>Navigate</Text>
-            </TouchableOpacity>
-          </View>
-        ))}
       </ScrollView>
     </View>
   );
 }
 
-// ======================
 const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#020617" },
   home: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#020617" },
@@ -310,9 +266,6 @@ const styles = StyleSheet.create({
   bestBox: { padding: 15, backgroundColor: "#022c22", margin: 10, borderRadius: 10 },
   bestText: { color: "#22c55e" },
   reason: { color: "#94a3b8" },
-  card: { backgroundColor: "#1e293b", margin: 10, padding: 15, borderRadius: 12 },
-  gate: { color: "white", fontSize: 18 },
-  text: { color: "#94a3b8" },
   btn: { marginTop: 10, backgroundColor: "#22c55e", padding: 10, borderRadius: 8, alignItems: "center" },
   btnText: { color: "white", fontWeight: "bold" },
 });

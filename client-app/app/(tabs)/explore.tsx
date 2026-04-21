@@ -1,5 +1,3 @@
-// app/(tabs)/explore.tsx
-
 import {
   View,
   Text,
@@ -14,9 +12,11 @@ import {
 import { useEffect, useState } from "react";
 import axios from "axios";
 import * as Location from "expo-location";
-import { io } from "socket.io-client";
 
-// ✅ FIX: conditional map import
+// ❌ REMOVE direct import of socket at top
+// import { io } from "socket.io-client";
+
+// ✅ SAFE MAP IMPORT (NO WEB CRASH)
 let MapView: any, Marker: any;
 
 if (Platform.OS !== "web") {
@@ -25,9 +25,7 @@ if (Platform.OS !== "web") {
   Marker = maps.Marker;
 }
 
-// 🔥 USE YOUR EC2 URL
 const BASE_URL = "http://34.233.135.146:5001";
-const socket = io(BASE_URL);
 
 const EVENT = {
   lat: 25.4484,
@@ -43,8 +41,10 @@ export default function Explore() {
   useEffect(() => {
     getLocation();
     fetchZones();
+    setupSocket();
   }, []);
 
+  // 📍 LOCATION
   const getLocation = async () => {
     let { status } =
       await Location.requestForegroundPermissionsAsync();
@@ -54,6 +54,7 @@ export default function Explore() {
     setLocation(loc.coords);
   };
 
+  // 🌐 FETCH
   const fetchZones = async () => {
     try {
       const res = await axios.get(`${BASE_URL}/zones`);
@@ -69,9 +70,15 @@ export default function Explore() {
     fetchZones();
   };
 
-  // 🔌 SOCKET
-  useEffect(() => {
-    socket.on("zoneUpdate", (z) => {
+  // 🔌 SOCKET (SAFE)
+  const setupSocket = () => {
+    const { io } = require("socket.io-client"); // ✅ lazy import
+
+    const socket = io(BASE_URL, {
+      transports: ["websocket"],
+    });
+
+    socket.on("zoneUpdate", (z: any) => {
       console.log("📡 LIVE:", z);
 
       setZones((prev) => {
@@ -81,12 +88,10 @@ export default function Explore() {
           : [...prev, z];
       });
     });
-
-    return () => socket.off("zoneUpdate");
-  }, []);
+  };
 
   // 📏 DISTANCE
-  const getDistance = (zone) => {
+  const getDistance = (zone: any) => {
     if (!location || !zone.lat) return 99999;
 
     const R = 6371;
@@ -104,7 +109,7 @@ export default function Explore() {
     );
   };
 
-  const getETA = (d) => Math.max(1, Math.round(d / 80));
+  const getETA = (d: number) => Math.max(1, Math.round(d / 80));
 
   const isEvent = () => {
     if (!location) return false;
@@ -130,7 +135,7 @@ export default function Explore() {
           .sort((a, b) => a.score - b.score)[0]
       : null;
 
-  const openNavigation = (gate) => {
+  const openNavigation = (gate: any) => {
     if (!location) return;
 
     Linking.openURL(
@@ -142,7 +147,7 @@ export default function Explore() {
     <View style={styles.container}>
       <Text style={styles.header}>🔍 Smart Explore</Text>
 
-      {/* ❌ WEB FALLBACK */}
+      {/* 🖥️ WEB FALLBACK */}
       {Platform.OS === "web" && (
         <View style={styles.emptyBox}>
           <Text style={styles.emptyText}>
@@ -151,7 +156,7 @@ export default function Explore() {
         </View>
       )}
 
-      {/* ❌ NO EVENT */}
+      {/* ❌ NOT IN EVENT */}
       {!isEvent() && (
         <View style={styles.emptyBox}>
           <Text style={styles.emptyText}>
@@ -160,7 +165,7 @@ export default function Explore() {
         </View>
       )}
 
-      {/* ✅ MAP (ONLY MOBILE) */}
+      {/* 🗺️ MAP (ONLY MOBILE) */}
       {Platform.OS !== "web" && isEvent() && (
         <MapView
           style={styles.map}
