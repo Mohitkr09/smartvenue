@@ -1,3 +1,4 @@
+
 require("dotenv").config();
 
 const express = require("express");
@@ -36,7 +37,7 @@ app.use("/user", userRoutes);
 // 🌐 BASIC ROUTE
 // =======================
 app.get("/", (req, res) => {
-  res.send("🚀 Smart Venue API Running (Production)");
+  res.send("🚀 Smart Venue API Running");
 });
 
 // =======================
@@ -120,21 +121,18 @@ const io = new Server(server, {
 });
 
 // =======================
-// 🔥 REDIS SETUP (AWS READY)
+// 🔥 REDIS SETUP
 // =======================
 async function setupRedis() {
   try {
-    const redisUrl = process.env.REDIS_URL;
+    const redisUrl = process.env.REDIS_URI;
 
     if (!redisUrl) {
-      console.log("⚠️ No Redis URL → running without adapter");
+      console.log("⚠️ No Redis → running without adapter");
       return;
     }
 
-    const pubClient = createClient({
-      url: redisUrl,
-    });
-
+    const pubClient = createClient({ url: redisUrl });
     const subClient = pubClient.duplicate();
 
     pubClient.on("error", (err) =>
@@ -172,7 +170,7 @@ io.on("connection", (socket) => {
 });
 
 // =======================
-// 🚀 START SERVER
+// 🚀 START SERVER (FIXED)
 // =======================
 const PORT = process.env.PORT || 5000;
 
@@ -184,11 +182,18 @@ async function startServer() {
 
     await connectProducer();
 
-    await startConsumer(io);
-
+    // 🚀 START SERVER FIRST (IMPORTANT)
     server.listen(PORT, "0.0.0.0", () => {
       console.log(`🚀 Server running on port ${PORT}`);
     });
+
+    // 🚀 START CONSUMER IN BACKGROUND
+    setTimeout(() => {
+      console.log("🔥 Starting Kafka consumer...");
+      startConsumer(io).catch((err) =>
+        console.error("❌ Consumer crash:", err.message)
+      );
+    }, 1000);
 
   } catch (err) {
     console.error("❌ Startup Error:", err.message);
@@ -197,3 +202,4 @@ async function startServer() {
 }
 
 startServer();
+
