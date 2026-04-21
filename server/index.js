@@ -24,9 +24,7 @@ const userRoutes = require("./routes/userRoutes");
 
 const app = express();
 
-// =======================
-// 🔧 MIDDLEWARE
-// =======================
+
 app.use(cors());
 app.use(express.json());
 
