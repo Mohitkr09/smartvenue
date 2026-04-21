@@ -1,3 +1,5 @@
+// app/(tabs)/explore.tsx
+
 import {
   View,
   Text,
@@ -6,26 +8,14 @@ import {
   TouchableOpacity,
   RefreshControl,
   Linking,
-  Platform,
 } from "react-native";
-
 import { useEffect, useState } from "react";
 import axios from "axios";
 import * as Location from "expo-location";
+import { io } from "socket.io-client";
+import MapView, { Marker } from "react-native-maps";
 
-// ❌ REMOVE direct import of socket at top
-// import { io } from "socket.io-client";
-
-// ✅ SAFE MAP IMPORT (NO WEB CRASH)
-let MapView: any, Marker: any;
-
-if (Platform.OS !== "web") {
-  const maps = require("react-native-maps");
-  MapView = maps.default;
-  Marker = maps.Marker;
-}
-
-const BASE_URL = "http://34.233.135.146:5001";
+const socket = io("http://172.20.39.19:5000");
 
 const EVENT = {
   lat: 25.4484,
@@ -41,10 +31,8 @@ export default function Explore() {
   useEffect(() => {
     getLocation();
     fetchZones();
-    setupSocket();
   }, []);
 
-  // 📍 LOCATION
   const getLocation = async () => {
     let { status } =
       await Location.requestForegroundPermissionsAsync();
@@ -54,14 +42,11 @@ export default function Explore() {
     setLocation(loc.coords);
   };
 
-  // 🌐 FETCH
   const fetchZones = async () => {
     try {
-      const res = await axios.get(`${BASE_URL}/zones`);
+      const res = await axios.get("http://172.20.39.19:5000/zones");
       setZones(res.data || []);
-    } catch (err: any) {
-      console.log("API Error:", err.message);
-    }
+    } catch {}
     setRefreshing(false);
   };
 
@@ -70,28 +55,23 @@ export default function Explore() {
     fetchZones();
   };
 
-  // 🔌 SOCKET (SAFE)
-  const setupSocket = () => {
-    const { io } = require("socket.io-client"); // ✅ lazy import
-
-    const socket = io(BASE_URL, {
-      transports: ["websocket"],
-    });
-
-    socket.on("zoneUpdate", (z: any) => {
-      console.log("📡 LIVE:", z);
-
+  useEffect(() => {
+    socket.on("zoneUpdated", (z) => {
       setZones((prev) => {
-        const exists = prev.find((p) => p.name === z.name);
+        const exists = prev.find((p) => p.gate_id === z.gate_id);
         return exists
-          ? prev.map((p) => (p.name === z.name ? z : p))
+          ? prev.map((p) =>
+              p.gate_id === z.gate_id ? z : p
+            )
           : [...prev, z];
       });
     });
-  };
+
+    return () => socket.off("zoneUpdated");
+  }, []);
 
   // 📏 DISTANCE
-  const getDistance = (zone: any) => {
+  const getDistance = (zone) => {
     if (!location || !zone.lat) return 99999;
 
     const R = 6371;
@@ -109,17 +89,18 @@ export default function Explore() {
     );
   };
 
-  const getETA = (d: number) => Math.max(1, Math.round(d / 80));
+  const getETA = (d) => Math.max(1, Math.round(d / 80));
 
+  // 🧠 EVENT CHECK
   const isEvent = () => {
     if (!location) return false;
 
-    return (
-      getDistance({
-        lat: EVENT.lat,
-        lng: EVENT.lng,
-      }) <= EVENT.radius
-    );
+    const dist = getDistance({
+      lat: EVENT.lat,
+      lng: EVENT.lng,
+    });
+
+    return dist <= EVENT.radius;
   };
 
   // 🏆 BEST GATE
@@ -129,13 +110,13 @@ export default function Explore() {
           .map((z) => ({
             ...z,
             score:
-              (z.crowdLevel ?? 0) * 0.7 +
+              (z.futureCrowd ?? z.crowdLevel) * 0.7 +
               getDistance(z) * 0.3,
           }))
           .sort((a, b) => a.score - b.score)[0]
       : null;
 
-  const openNavigation = (gate: any) => {
+  const openNavigation = (gate) => {
     if (!location) return;
 
     Linking.openURL(
@@ -147,97 +128,161 @@ export default function Explore() {
     <View style={styles.container}>
       <Text style={styles.header}>🔍 Smart Explore</Text>
 
-      {/* 🖥️ WEB FALLBACK */}
-      {Platform.OS === "web" && (
-        <View style={styles.emptyBox}>
-          <Text style={styles.emptyText}>
-            🖥️ Map not supported on web
-          </Text>
-        </View>
-      )}
-
-      {/* ❌ NOT IN EVENT */}
+      {/* ❌ NO EVENT */}
       {!isEvent() && (
         <View style={styles.emptyBox}>
           <Text style={styles.emptyText}>
-            🚫 Not at event location
+            🚫 You have no suggested gate because you are not at any event
           </Text>
         </View>
       )}
 
-      {/* 🗺️ MAP (ONLY MOBILE) */}
-      {Platform.OS !== "web" && isEvent() && (
-        <MapView
-          style={styles.map}
-          showsUserLocation
-          region={{
-            latitude: location?.latitude || EVENT.lat,
-            longitude: location?.longitude || EVENT.lng,
-            latitudeDelta: 0.01,
-            longitudeDelta: 0.01,
-          }}
-        >
-          {zones.map((z, i) => (
-            <Marker
-              key={i}
-              coordinate={{ latitude: z.lat, longitude: z.lng }}
-              title={z.name}
-            />
-          ))}
-        </MapView>
+      {/* ✅ EVENT */}
+      {isEvent() && (
+        <>
+          {/* 🗺 MAP PREVIEW */}
+          <MapView
+            style={styles.map}
+            showsUserLocation
+            region={{
+              latitude: location?.latitude || EVENT.lat,
+              longitude: location?.longitude || EVENT.lng,
+              latitudeDelta: 0.01,
+              longitudeDelta: 0.01,
+            }}
+          >
+            {zones.map((z, i) => (
+              <Marker
+                key={i}
+                coordinate={{ latitude: z.lat, longitude: z.lng }}
+                title={`Gate ${z.gate_id}`}
+              />
+            ))}
+          </MapView>
+
+          {/* 📋 LIST */}
+          <FlatList
+            data={zones}
+            keyExtractor={(item, i) => `gate-${i}`}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+            }
+            renderItem={({ item }) => {
+              const dist = getDistance(item);
+              const eta = getETA(dist);
+
+              const isBest = bestGate?.gate_id === item.gate_id;
+
+              return (
+                <View
+                  style={[
+                    styles.card,
+                    isBest && styles.bestCard,
+                  ]}
+                >
+                  <Text style={styles.title}>
+                    Gate {item.gate_id}
+                    {isBest && " ⭐ BEST"}
+                  </Text>
+
+                  <Text style={styles.text}>
+                    📏 {dist} m | ⏱ {eta} min
+                  </Text>
+
+                  <Text style={styles.text}>
+                    👥 {item.futureCrowd ?? item.crowdLevel}%
+                  </Text>
+
+                  <Text style={styles.status}>
+                    {item.status}
+                  </Text>
+
+                  {/* 🚗 NAVIGATE BUTTON */}
+                  <TouchableOpacity
+                    style={styles.navBtn}
+                    onPress={() => openNavigation(item)}
+                  >
+                    <Text style={styles.navText}>Navigate</Text>
+                  </TouchableOpacity>
+                </View>
+              );
+            }}
+          />
+        </>
       )}
-
-      {/* 📋 LIST */}
-      <FlatList
-        data={zones}
-        keyExtractor={(item, i) => `gate-${i}`}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
-        renderItem={({ item }) => {
-          const dist = getDistance(item);
-          const eta = getETA(dist);
-          const isBest = bestGate?.name === item.name;
-
-          return (
-            <View style={[styles.card, isBest && styles.bestCard]}>
-              <Text style={styles.title}>
-                {item.name} {isBest && "⭐ BEST"}
-              </Text>
-
-              <Text style={styles.text}>
-                📏 {dist} m | ⏱ {eta} min
-              </Text>
-
-              <Text style={styles.text}>
-                👥 {item.crowdLevel}%
-              </Text>
-
-              <TouchableOpacity
-                style={styles.navBtn}
-                onPress={() => openNavigation(item)}
-              >
-                <Text style={styles.navText}>Navigate</Text>
-              </TouchableOpacity>
-            </View>
-          );
-        }}
-      />
     </View>
   );
 }
 
-// 🎨 STYLES
+// 🎨 UI
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#020617", paddingTop: 40 },
-  header: { color: "white", fontSize: 24, textAlign: "center", fontWeight: "bold" },
-  map: { height: 200, margin: 10, borderRadius: 10 },
-  emptyBox: { marginTop: 100, alignItems: "center" },
-  emptyText: { color: "#ef4444", fontSize: 16, textAlign: "center" },
-  card: { backgroundColor: "#1e293b", margin: 10, padding: 15, borderRadius: 12 },
-  bestCard: { borderColor: "#22c55e", borderWidth: 2 },
-  title: { color: "white", fontSize: 18, fontWeight: "bold" },
-  text: { color: "#94a3b8" },
-  navBtn: { marginTop: 10, backgroundColor: "#3b82f6", padding: 10, borderRadius: 8, alignItems: "center" },
-  navText: { color: "white", fontWeight: "bold" },
+  container: {
+    flex: 1,
+    backgroundColor: "#020617",
+    paddingTop: 40,
+  },
+
+  header: {
+    color: "white",
+    fontSize: 24,
+    textAlign: "center",
+    fontWeight: "bold",
+  },
+
+  map: {
+    height: 200,
+    margin: 10,
+    borderRadius: 10,
+  },
+
+  emptyBox: {
+    marginTop: 100,
+    alignItems: "center",
+  },
+
+  emptyText: {
+    color: "#ef4444",
+    fontSize: 16,
+    textAlign: "center",
+  },
+
+  card: {
+    backgroundColor: "#1e293b",
+    margin: 10,
+    padding: 15,
+    borderRadius: 12,
+  },
+
+  bestCard: {
+    borderColor: "#22c55e",
+    borderWidth: 2,
+  },
+
+  title: {
+    color: "white",
+    fontSize: 18,
+    fontWeight: "bold",
+  },
+
+  text: {
+    color: "#94a3b8",
+  },
+
+  status: {
+    color: "#22c55e",
+    marginTop: 5,
+  },
+
+  navBtn: {
+    marginTop: 10,
+    backgroundColor: "#3b82f6",
+    padding: 10,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+
+  navText: {
+    color: "white",
+    fontWeight: "bold",
+  },
 });

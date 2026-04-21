@@ -1,4 +1,3 @@
-
 require("dotenv").config();
 
 const express = require("express");
@@ -7,7 +6,7 @@ const { Server } = require("socket.io");
 const cors = require("cors");
 const mongoose = require("mongoose");
 
-// 🔥 REDIS (only used if URL provided)
+// 🔥 REDIS (optional)
 const { createAdapter } = require("@socket.io/redis-adapter");
 const { createClient } = require("redis");
 
@@ -24,18 +23,23 @@ const userRoutes = require("./routes/userRoutes");
 
 const app = express();
 
-
-app.use(cors());
+// =======================
+// 🔧 MIDDLEWARE
+// =======================
+app.use(cors({ origin: "*" }));
 app.use(express.json());
 
+// =======================
+// 🔄 ROUTES
+// =======================
 app.use("/auth", authRoutes);
 app.use("/user", userRoutes);
 
 // =======================
-// 🌐 BASIC ROUTE
+// 🌐 HEALTH CHECK (IMPORTANT)
 // =======================
 app.get("/", (req, res) => {
-  res.send("🚀 Smart Venue API Running");
+  res.send("🚀 Smart Venue API Running (Production)");
 });
 
 // =======================
@@ -53,34 +57,38 @@ async function connectDB() {
 }
 
 // =======================
-// 🌱 SEED DATA
+// 🌱 SEED DATA (SAFE)
 // =======================
 const seedZones = async () => {
-  const zones = [
-    { name: "Gate A", lat: 25.4484, lng: 78.5685 },
-    { name: "Gate B", lat: 25.4490, lng: 78.5690 },
-    { name: "Gate C", lat: 25.4475, lng: 78.5670 },
-    { name: "VIP Gate", lat: 25.4500, lng: 78.5700 },
-    { name: "Food Entry", lat: 25.4465, lng: 78.5660 },
-  ];
+  try {
+    const zones = [
+      { name: "Gate A", lat: 25.4484, lng: 78.5685 },
+      { name: "Gate B", lat: 25.4490, lng: 78.5690 },
+      { name: "Gate C", lat: 25.4475, lng: 78.5670 },
+      { name: "VIP Gate", lat: 25.4500, lng: 78.5700 },
+      { name: "Food Entry", lat: 25.4465, lng: 78.5660 },
+    ];
 
-  for (let z of zones) {
-    await Zone.findOneAndUpdate(
-      { name: z.name },
-      {
-        ...z,
-        crowdLevel: Math.floor(Math.random() * 50),
-        waitTime: Math.floor(Math.random() * 5),
-      },
-      { upsert: true }
-    );
+    for (let z of zones) {
+      await Zone.findOneAndUpdate(
+        { name: z.name },
+        {
+          ...z,
+          crowdLevel: Math.floor(Math.random() * 50),
+          waitTime: Math.floor(Math.random() * 5),
+        },
+        { upsert: true }
+      );
+    }
+
+    console.log("✅ Zones Seeded");
+  } catch (err) {
+    console.log("⚠️ Seed skipped:", err.message);
   }
-
-  console.log("✅ Zones Seeded");
 };
 
 // =======================
-// 🔄 ROUTES
+// 🔄 API ENDPOINTS
 // =======================
 
 // 🔥 Send event → Kafka
@@ -125,7 +133,7 @@ async function setupRedis() {
   const redisUrl = process.env.REDIS_URI;
 
   if (!redisUrl) {
-    console.log("⚠️ No Redis → skipping completely");
+    console.log("⚠️ No Redis → skipping adapter");
     return;
   }
 
@@ -176,17 +184,17 @@ async function startServer() {
   try {
     await connectDB();
 
-    await setupRedis(); // safe (won’t run without REDIS_URI)
+    await setupRedis();
 
     await connectProducer();
     console.log("🔥 Kafka Producer Connected");
 
-    // ✅ Start server FIRST
+    // ✅ CRITICAL: PUBLIC ACCESS FIX
     server.listen(PORT, "0.0.0.0", () => {
       console.log(`🚀 Server running on port ${PORT}`);
     });
 
-    // ✅ Start consumer WITHOUT blocking
+    // ✅ NON-BLOCKING CONSUMER
     setTimeout(() => {
       console.log("🔥 Starting Kafka consumer...");
       startConsumer(io).catch((err) =>
@@ -202,3 +210,13 @@ async function startServer() {
 
 startServer();
 
+// =======================
+// 🛑 GLOBAL ERROR HANDLER
+// =======================
+process.on("uncaughtException", (err) => {
+  console.error("❌ Uncaught Exception:", err.message);
+});
+
+process.on("unhandledRejection", (err) => {
+  console.error("❌ Unhandled Rejection:", err);
+});
