@@ -44,6 +44,8 @@ const startConsumer = async (io) => {
       fromBeginning: false,
     });
 
+    console.log("📡 Subscribed to topic: zone-updates");
+
     await consumer.run({
       eachMessage: async ({ topic, partition, message }) => {
         try {
@@ -61,7 +63,11 @@ const startConsumer = async (io) => {
           const processed = {
             ...data,
             timestamp: new Date().toISOString(),
-            waitTime: data.waitTime ?? Math.round(data.crowdLevel * 0.2),
+
+            // fallback wait time
+            waitTime:
+              data.waitTime ??
+              Math.max(1, Math.round(data.crowdLevel * 0.2)),
 
             suggestion:
               data.crowdLevel > 70
@@ -74,15 +80,18 @@ const startConsumer = async (io) => {
                 : null,
           };
 
+          console.log("🧠 Processed:", processed);
+
           // ==============================
-          // 📡 REAL-TIME EMIT (FIXED)
+          // 📡 REAL-TIME EMIT
           // ==============================
 
           if (io) {
-            io.emit("zoneUpdate", processed); // ✅ FIXED NAME
+            console.log("📤 Emitting to frontend...");
+            io.emit("zoneUpdate", processed); // ✅ MUST MATCH FRONTEND
+          } else {
+            console.log("⚠️ No socket instance");
           }
-
-          console.log("📤 Sent to clients:", processed);
 
         } catch (err) {
           console.log("❌ Message Error:", err.message);
