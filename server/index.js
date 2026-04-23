@@ -47,6 +47,7 @@ app.get("/", (req, res) => {
 // =======================
 async function connectDB() {
   try {
+    console.log("🔌 Connecting MongoDB...");
     await mongoose.connect(process.env.MONGO_URI);
     console.log("✅ MongoDB Connected");
 
@@ -123,6 +124,8 @@ async function setupRedis() {
   }
 
   try {
+    console.log("🔌 Connecting Redis...");
+
     const pubClient = createClient({ url: redisUrl });
     const subClient = pubClient.duplicate();
 
@@ -137,7 +140,7 @@ async function setupRedis() {
 
     console.log("🔥 Redis Adapter Connected");
   } catch (err) {
-    console.log("⚠️ Redis failed → fallback mode:", err.message);
+    console.log("⚠️ Redis failed → fallback:", err.message);
   }
 }
 
@@ -164,19 +167,21 @@ async function startServer() {
     await connectDB();
     await setupRedis();
 
-    // ✅ START SERVER FIRST (IMPORTANT)
+    // ✅ SERVER START FIRST
     server.listen(PORT, "0.0.0.0", () => {
       console.log(`🚀 Server running on port ${PORT}`);
     });
 
     // ===============================
-    // 🔥 SAFE KAFKA START (OPTIONAL)
+    // 🔥 SAFE KAFKA (OPTIONAL)
     // ===============================
+    const BROKER = process.env.KAFKA_BROKER;
 
-    if (process.env.KAFKA_BROKER) {
-      console.log("📡 Kafka enabled:", process.env.KAFKA_BROKER);
+    console.log("🔥 ENV KAFKA_BROKER =", BROKER);
 
-      // NON-BLOCKING
+    if (BROKER && BROKER !== "localhost:9092") {
+      console.log("📡 Kafka enabled:", BROKER);
+
       connectProducer().catch((err) =>
         console.log("⚠️ Kafka producer failed:", err.message)
       );
@@ -187,7 +192,7 @@ async function startServer() {
         );
       }, 2000);
     } else {
-      console.log("⚠️ Kafka disabled (no broker)");
+      console.log("⚠️ Kafka disabled (invalid or localhost broker)");
     }
 
   } catch (err) {
