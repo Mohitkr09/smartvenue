@@ -1,4 +1,4 @@
-require("dotenv").config();
+require("dotenv").config(); // ✅ MUST BE FIRST
 
 const express = require("express");
 const http = require("http");
@@ -6,7 +6,7 @@ const { Server } = require("socket.io");
 const cors = require("cors");
 const mongoose = require("mongoose");
 
-// 🔥 REDIS (optional)
+// 🔥 REDIS
 const { createAdapter } = require("@socket.io/redis-adapter");
 const { createClient } = require("redis");
 
@@ -39,7 +39,7 @@ app.use("/user", userRoutes);
 // 🌐 HEALTH CHECK
 // =======================
 app.get("/", (req, res) => {
-  res.send("🚀 Smart Venue API Running (Production)");
+  res.send("🚀 Smart Venue API Running");
 });
 
 // =======================
@@ -111,10 +111,11 @@ const io = new Server(server, {
 });
 
 // =======================
-// 🔥 REDIS SETUP
+// 🔥 REDIS SETUP (FIXED)
 // =======================
 async function setupRedis() {
-  const redisUrl = process.env.REDIS_URI;
+  const redisUrl =
+    process.env.REDIS_URL || process.env.REDIS_URI; // ✅ FIXED
 
   if (!redisUrl) {
     console.log("⚠️ No Redis → skipping adapter");
@@ -126,7 +127,7 @@ async function setupRedis() {
     const subClient = pubClient.duplicate();
 
     pubClient.on("error", (err) =>
-      console.log("Redis Error:", err.message)
+      console.log("❌ Redis Error:", err.message)
     );
 
     await pubClient.connect();
@@ -136,7 +137,7 @@ async function setupRedis() {
 
     console.log("🔥 Redis Adapter Connected");
   } catch (err) {
-    console.log("⚠️ Redis failed → fallback mode");
+    console.log("⚠️ Redis failed → fallback mode:", err.message);
   }
 }
 
@@ -164,17 +165,17 @@ async function startServer() {
 
     await setupRedis();
 
-    // 🔥 START SERVER FIRST (IMPORTANT)
+    // ✅ START SERVER FIRST
     server.listen(PORT, "0.0.0.0", () => {
       console.log(`🚀 Server running on port ${PORT}`);
     });
 
-    // 🔥 CONNECT KAFKA PRODUCER (NON-BLOCKING)
+    // 🔥 Kafka Producer (non-blocking)
     connectProducer().catch((err) =>
       console.log("⚠️ Kafka producer failed:", err.message)
     );
 
-    // 🔥 START CONSUMER (NON-BLOCKING)
+    // 🔥 Kafka Consumer (non-blocking + delayed)
     setTimeout(() => {
       startConsumer(io).catch((err) =>
         console.log("⚠️ Kafka consumer failed:", err.message)

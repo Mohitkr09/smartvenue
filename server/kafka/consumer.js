@@ -1,5 +1,7 @@
 // server/kafka/consumer.js
 
+require("dotenv").config(); // ✅ MUST BE FIRST
+
 const { Kafka } = require("kafkajs");
 
 // ==============================
@@ -7,6 +9,10 @@ const { Kafka } = require("kafkajs");
 // ==============================
 
 const BROKER = process.env.KAFKA_BROKER || "localhost:9092";
+
+// ✅ DEBUG (VERY IMPORTANT)
+console.log("🔥 ENV KAFKA_BROKER =", process.env.KAFKA_BROKER);
+console.log("🔥 USING BROKER =", BROKER);
 
 const kafka = new Kafka({
   clientId: "smart-venue",
@@ -106,6 +112,8 @@ const startConsumer = async (io) => {
           if (io) {
             io.emit("zoneUpdate", processed);
             console.log("📤 Emitted to frontend");
+          } else {
+            console.log("⚠️ No socket instance");
           }
 
         } catch (err) {
