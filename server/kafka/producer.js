@@ -3,16 +3,21 @@
 const { Kafka, logLevel } = require("kafkajs");
 
 // ==============================
-// 🧠 KAFKA SETUP
+// 🧠 KAFKA SETUP (FIXED)
 // ==============================
+
+// ✅ Use ENV or fallback to localhost (important for EC2 host)
+const BROKER = process.env.KAFKA_BROKER || "localhost:9092";
 
 const kafka = new Kafka({
   clientId: "smart-venue",
-  brokers: ["localhost:9092"],
+  brokers: [BROKER],
+
   logLevel: logLevel.NOTHING,
+
   retry: {
-    initialRetryTime: 100,
-    retries: 5,
+    initialRetryTime: 300,
+    retries: 10,
   },
 });
 
@@ -32,21 +37,31 @@ let isConnecting = false;
 // ==============================
 
 const connectProducer = async () => {
-  if (isConnected || isConnecting) return;
+  if (isConnected) return;
+  if (isConnecting) return;
 
   try {
     isConnecting = true;
+
+    console.log("🔌 Connecting Kafka Producer...");
+    console.log("📡 Broker:", BROKER);
 
     await producer.connect();
 
     isConnected = true;
     isConnecting = false;
 
-    console.log("📡 Kafka Producer Connected");
+    console.log("✅ Kafka Producer Connected");
 
   } catch (err) {
     isConnecting = false;
     console.error("❌ Kafka Connection Error:", err.message);
+
+    // 🔁 Retry connection after delay
+    setTimeout(() => {
+      console.log("🔄 Retrying Kafka connection...");
+      connectProducer();
+    }, 5000);
   }
 };
 
@@ -54,7 +69,7 @@ const connectProducer = async () => {
 // 🔁 RETRY WRAPPER
 // ==============================
 
-const retrySend = async (fn, retries = 2) => {
+const retrySend = async (fn, retries = 3) => {
   try {
     return await fn();
   } catch (err) {
@@ -103,7 +118,7 @@ const sendEvent = async (topic, data) => {
 };
 
 // ==============================
-// 📦 BATCH SEND (OPTIMIZED)
+// 📦 BATCH SEND
 // ==============================
 
 const sendBatchEvents = async (topic, events = []) => {

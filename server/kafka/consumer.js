@@ -3,12 +3,20 @@
 const { Kafka } = require("kafkajs");
 
 // ==============================
-// 🧠 KAFKA SETUP
+// 🧠 KAFKA SETUP (FIXED)
 // ==============================
+
+// ✅ Always fallback to localhost (important for EC2 host)
+const BROKER = process.env.KAFKA_BROKER || "localhost:9092";
 
 const kafka = new Kafka({
   clientId: "smart-venue",
-  brokers: [process.env.KAFKA_BROKER || "localhost:9092"],
+  brokers: [BROKER],
+
+  retry: {
+    initialRetryTime: 300,
+    retries: 10,
+  },
 });
 
 const consumer = kafka.consumer({
@@ -35,9 +43,10 @@ const safeParse = (data) => {
 const startConsumer = async (io) => {
   try {
     console.log("🔥 Starting Kafka Consumer...");
+    console.log("📡 Using broker:", BROKER);
 
     await consumer.connect();
-    console.log("📡 Kafka Consumer Connected");
+    console.log("✅ Kafka Consumer Connected");
 
     await consumer.subscribe({
       topic: "zone-updates",
@@ -64,10 +73,9 @@ const startConsumer = async (io) => {
             ...data,
             timestamp: new Date().toISOString(),
 
-            // fallback wait time
             waitTime:
               data.waitTime ??
-              Math.max(1, Math.round(data.crowdLevel * 0.2)),
+              Math.max(1, Math.round((data.crowdLevel || 0) * 0.2)),
 
             suggestion:
               data.crowdLevel > 70
@@ -87,20 +95,26 @@ const startConsumer = async (io) => {
           // ==============================
 
           if (io) {
-            console.log("📤 Emitting to frontend...");
-            io.emit("zoneUpdate", processed); // ✅ MUST MATCH FRONTEND
+            io.emit("zoneUpdate", processed);
+            console.log("📤 Emitted to frontend");
           } else {
-            console.log("⚠️ No socket instance");
+            console.log("⚠️ Socket.io not available");
           }
 
         } catch (err) {
-          console.log("❌ Message Error:", err.message);
+          console.log("❌ Message Processing Error:", err.message);
         }
       },
     });
 
   } catch (err) {
     console.log("❌ Consumer Error:", err.message);
+
+    // 🔁 AUTO RETRY (VERY IMPORTANT)
+    setTimeout(() => {
+      console.log("🔄 Restarting consumer...");
+      startConsumer(io);
+    }, 5000);
   }
 };
 
