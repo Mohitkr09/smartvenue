@@ -2,25 +2,33 @@
 
 import { io } from "socket.io-client";
 
-const SOCKET_URL = "http://34.233.135.146:5001"; // ✅ EC2 public URL
+// ==============================
+// 🧠 CONFIG (FIXED)
+// ==============================
+
+// ✅ MUST MATCH YOUR BACKEND
+const SOCKET_URL = "http://18.214.178.1:5000";
 
 let socket = null;
 
 // ==============================
 // 🔌 CONNECT SOCKET (SAFE)
 // ==============================
-export const connectSocket = () => {
+export const connectSocket = (url = SOCKET_URL) => {
+  // prevent duplicate connections
   if (socket && socket.connected) {
+    console.log("⚠️ Socket already connected");
     return socket;
   }
 
-  socket = io(SOCKET_URL, {
-    transports: ["websocket"], // faster & avoids polling issues
+  console.log("🚀 Connecting to:", url);
+
+  socket = io(url, {
+    transports: ["websocket"], // ✅ IMPORTANT for mobile
     reconnection: true,
-    reconnectionAttempts: 10,
+    reconnectionAttempts: Infinity, // 🔥 never stop reconnecting
     reconnectionDelay: 2000,
     timeout: 10000,
-    forceNew: true, // ensures fresh connection
   });
 
   // ==============================
@@ -48,11 +56,11 @@ export const connectSocket = () => {
   });
 
   // ==============================
-  // 📡 REAL-TIME EVENT (IMPORTANT)
+  // 📡 REAL-TIME EVENT
   // ==============================
 
   socket.on("zoneUpdate", (data) => {
-    console.log("📊 LIVE UPDATE:", data);
+    console.log("🔥 LIVE UPDATE:", data);
   });
 
   return socket;
@@ -61,10 +69,15 @@ export const connectSocket = () => {
 // ==============================
 // 🔌 GET SOCKET INSTANCE
 // ==============================
-export const getSocket = () => socket;
+export const getSocket = () => {
+  if (!socket) {
+    console.log("⚠️ Socket not initialized");
+  }
+  return socket;
+};
 
 // ==============================
-// 🔌 DISCONNECT (OPTIONAL)
+// 🔌 DISCONNECT
 // ==============================
 export const disconnectSocket = () => {
   if (socket) {

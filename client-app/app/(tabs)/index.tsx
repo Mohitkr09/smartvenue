@@ -15,6 +15,13 @@ import * as Location from "expo-location";
 import * as Speech from "expo-speech";
 import { Linking } from "react-native";
 
+// ==============================
+// 🧠 CONFIG
+// ==============================
+
+// ✅ USE ELASTIC IP (FINAL FIX)
+const API_URL = "http://18.214.178.1:5000";
+
 // MAP SAFE IMPORT
 let MapView: any, Marker: any, Circle: any, AnimatedRegion: any;
 
@@ -26,8 +33,9 @@ if (Platform.OS !== "web") {
   AnimatedRegion = maps.AnimatedRegion;
 }
 
-const API_URL = "http://34.233.135.146:5000"; // ✅ FIXED PORT
-
+// ==============================
+// 📍 EVENT LOCATION
+// ==============================
 const EVENT = {
   lat: 25.4484,
   lng: 78.5685,
@@ -55,15 +63,27 @@ export default function HomeScreen() {
   // 🚀 INIT
   // ==============================
   useEffect(() => {
-    connectSocket();
-    init();
+    console.log("🚀 Connecting socket...");
+
+    connectSocket(API_URL); // ✅ IMPORTANT FIX
 
     const socket = getSocket();
 
+    socket.on("connect", () => {
+      console.log("🟢 Socket Connected:", socket.id);
+    });
+
     socket.on("zoneUpdate", handleRealtime);
+
+    socket.on("connect_error", (err) => {
+      console.log("❌ Socket Error:", err.message);
+    });
+
+    init();
 
     return () => {
       socket.off("zoneUpdate", handleRealtime);
+      socket.disconnect();
     };
   }, []);
 
@@ -73,14 +93,15 @@ export default function HomeScreen() {
   };
 
   // ==============================
-  // 📡 REAL-TIME
+  // 📡 REAL-TIME HANDLER
   // ==============================
   const handleRealtime = (data: any) => {
-    console.log("📊 LIVE:", data);
+    console.log("🔥 LIVE UPDATE:", data);
 
     setZones((prev) => {
       const exists = prev.find((z) => z.name === data.name);
 
+      // 🔊 Voice alert
       if (data.crowdLevel >= 85) {
         Speech.speak(`High crowd at ${data.name}`);
       }
@@ -113,9 +134,8 @@ export default function HomeScreen() {
       if (markerRef) {
         markerRef.setValue(loc.coords);
       }
-
     } catch (err) {
-      console.log(err);
+      console.log("Location error:", err);
     }
   };
 
@@ -134,27 +154,30 @@ export default function HomeScreen() {
     try {
       const res = await axios.get(`${API_URL}/zones`);
       const data = res.data || [];
+
+      console.log("📦 Zones fetched:", data);
+
       setZones(data);
       findBestGate(data);
     } catch (err) {
-      console.log("Fetch error:", err);
+      console.log("❌ Fetch error:", err.message);
     }
 
     setLoading(false);
   };
 
   // ==============================
-  // 📏 DISTANCE
+  // 📏 DISTANCE CALC
   // ==============================
   const getDistance = (lat1, lon1, lat2, lon2) => {
     const R = 6371;
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLon = ((lon2 - lon1) * Math.PI) / 180;
 
     const a =
       Math.sin(dLat / 2) ** 2 +
-      Math.cos(lat1 * Math.PI / 180) *
-        Math.cos(lat2 * Math.PI / 180) *
+      Math.cos((lat1 * Math.PI) / 180) *
+        Math.cos((lat2 * Math.PI) / 180) *
         Math.sin(dLon / 2) ** 2;
 
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) * 1000;
