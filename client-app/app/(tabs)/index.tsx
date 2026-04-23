@@ -15,7 +15,7 @@ import * as Location from "expo-location";
 import * as Speech from "expo-speech";
 import { Linking } from "react-native";
 
-// ❗ IMPORTANT: DO NOT import react-native-maps directly (fix for your error)
+// MAP SAFE IMPORT
 let MapView: any, Marker: any, Circle: any, AnimatedRegion: any;
 
 if (Platform.OS !== "web") {
@@ -26,7 +26,7 @@ if (Platform.OS !== "web") {
   AnimatedRegion = maps.AnimatedRegion;
 }
 
-const API_URL = "http://34.233.135.146:5001"; // ✅ YOUR EC2
+const API_URL = "http://34.233.135.146:5000"; // ✅ FIXED PORT
 
 const EVENT = {
   lat: 25.4484,
@@ -38,6 +38,7 @@ export default function HomeScreen() {
   const [zones, setZones] = useState<any[]>([]);
   const [location, setLocation] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [bestGate, setBestGate] = useState<any>(null);
 
   const markerRef = useRef(
     Platform.OS !== "web"
@@ -59,7 +60,6 @@ export default function HomeScreen() {
 
     const socket = getSocket();
 
-    // ✅ FIXED EVENT NAME
     socket.on("zoneUpdate", handleRealtime);
 
     return () => {
@@ -73,7 +73,7 @@ export default function HomeScreen() {
   };
 
   // ==============================
-  // 📡 REAL-TIME HANDLER
+  // 📡 REAL-TIME
   // ==============================
   const handleRealtime = (data: any) => {
     console.log("📊 LIVE:", data);
@@ -85,9 +85,12 @@ export default function HomeScreen() {
         Speech.speak(`High crowd at ${data.name}`);
       }
 
-      return exists
+      const updated = exists
         ? prev.map((z) => (z.name === data.name ? data : z))
         : [...prev, data];
+
+      findBestGate(updated);
+      return updated;
     });
   };
 
@@ -117,12 +120,22 @@ export default function HomeScreen() {
   };
 
   // ==============================
+  // 🔄 REFRESH LOCATION
+  // ==============================
+  const refreshLocation = async () => {
+    await getLocation();
+    Speech.speak("Location updated");
+  };
+
+  // ==============================
   // 🌐 FETCH ZONES
   // ==============================
   const fetchZones = async () => {
     try {
       const res = await axios.get(`${API_URL}/zones`);
-      setZones(res.data || []);
+      const data = res.data || [];
+      setZones(data);
+      findBestGate(data);
     } catch (err) {
       console.log("Fetch error:", err);
     }
@@ -148,12 +161,46 @@ export default function HomeScreen() {
   };
 
   // ==============================
+  // 🧠 BEST GATE LOGIC
+  // ==============================
+  const findBestGate = (data) => {
+    if (!location || !data.length) return;
+
+    let best = null;
+    let score = Infinity;
+
+    data.forEach((g) => {
+      const dist = getDistance(
+        location.latitude,
+        location.longitude,
+        g.lat,
+        g.lng
+      );
+
+      const currentScore = dist + g.crowdLevel * 10;
+
+      if (currentScore < score) {
+        score = currentScore;
+        best = g;
+      }
+    });
+
+    setBestGate(best);
+
+    if (best) {
+      Speech.speak(`Best gate is ${best.name}`);
+    }
+  };
+
+  // ==============================
   // 🚀 NAVIGATION
   // ==============================
   const navigate = (gate) => {
     Linking.openURL(
       `https://www.google.com/maps/dir/?api=1&destination=${gate.lat},${gate.lng}`
     );
+
+    Speech.speak(`Navigating to ${gate.name}`);
   };
 
   // ==============================
@@ -167,14 +214,10 @@ export default function HomeScreen() {
     );
   }
 
-  // ==============================
-  // ❌ WEB FIX (YOUR MAIN ERROR)
-  // ==============================
   if (Platform.OS === "web") {
     return (
       <View style={styles.center}>
         <Text>🖥️ Map not supported on web</Text>
-        <Text>Use Expo Go on phone</Text>
       </View>
     );
   }
@@ -211,7 +254,24 @@ export default function HomeScreen() {
         ))}
       </MapView>
 
+      {/* 🔥 PANEL */}
       <ScrollView style={styles.panel}>
+        <TouchableOpacity style={styles.refresh} onPress={refreshLocation}>
+          <Text style={{ color: "white" }}>🔄 Refresh Location</Text>
+        </TouchableOpacity>
+
+        {!zones.length && (
+          <Text style={styles.text}>❌ No event detected</Text>
+        )}
+
+        {bestGate && (
+          <View style={styles.best}>
+            <Text style={styles.bestText}>
+              ⭐ Best Gate: {bestGate.name}
+            </Text>
+          </View>
+        )}
+
         {zones.map((g, i) => (
           <View key={i} style={styles.card}>
             <Text style={styles.gate}>{g.name}</Text>
@@ -224,7 +284,7 @@ export default function HomeScreen() {
               style={styles.btn}
               onPress={() => navigate(g)}
             >
-              <Text style={styles.btnText}>Navigate</Text>
+              <Text style={styles.btnText}>Open in Maps</Text>
             </TouchableOpacity>
           </View>
         ))}
@@ -243,9 +303,24 @@ const styles = StyleSheet.create({
     position: "absolute",
     bottom: 0,
     width: "100%",
-    maxHeight: 300,
+    maxHeight: 320,
     backgroundColor: "#020617",
   },
+
+  refresh: {
+    padding: 10,
+    backgroundColor: "#334155",
+    alignItems: "center",
+  },
+
+  best: {
+    backgroundColor: "#22c55e",
+    padding: 10,
+    margin: 10,
+    borderRadius: 10,
+  },
+
+  bestText: { color: "white", fontWeight: "bold" },
 
   card: {
     backgroundColor: "#1e293b",
