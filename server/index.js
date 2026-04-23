@@ -111,14 +111,14 @@ const io = new Server(server, {
 });
 
 // =======================
-// 🔥 REDIS SETUP (FIXED)
+// 🔥 REDIS SETUP
 // =======================
 async function setupRedis() {
   const redisUrl =
-    process.env.REDIS_URL || process.env.REDIS_URI; // ✅ FIXED
+    process.env.REDIS_URL || process.env.REDIS_URI;
 
   if (!redisUrl) {
-    console.log("⚠️ No Redis → skipping adapter");
+    console.log("⚠️ No Redis → running without adapter");
     return;
   }
 
@@ -162,25 +162,33 @@ async function startServer() {
     console.log("🚀 Starting server...");
 
     await connectDB();
-
     await setupRedis();
 
-    // ✅ START SERVER FIRST
+    // ✅ START SERVER FIRST (IMPORTANT)
     server.listen(PORT, "0.0.0.0", () => {
       console.log(`🚀 Server running on port ${PORT}`);
     });
 
-    // 🔥 Kafka Producer (non-blocking)
-    connectProducer().catch((err) =>
-      console.log("⚠️ Kafka producer failed:", err.message)
-    );
+    // ===============================
+    // 🔥 SAFE KAFKA START (OPTIONAL)
+    // ===============================
 
-    // 🔥 Kafka Consumer (non-blocking + delayed)
-    setTimeout(() => {
-      startConsumer(io).catch((err) =>
-        console.log("⚠️ Kafka consumer failed:", err.message)
+    if (process.env.KAFKA_BROKER) {
+      console.log("📡 Kafka enabled:", process.env.KAFKA_BROKER);
+
+      // NON-BLOCKING
+      connectProducer().catch((err) =>
+        console.log("⚠️ Kafka producer failed:", err.message)
       );
-    }, 2000);
+
+      setTimeout(() => {
+        startConsumer(io).catch((err) =>
+          console.log("⚠️ Kafka consumer failed:", err.message)
+        );
+      }, 2000);
+    } else {
+      console.log("⚠️ Kafka disabled (no broker)");
+    }
 
   } catch (err) {
     console.error("❌ Startup Error:", err.message);
