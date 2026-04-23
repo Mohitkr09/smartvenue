@@ -11,7 +11,7 @@ const { createAdapter } = require("@socket.io/redis-adapter");
 const { createClient } = require("redis");
 
 // 🔥 KAFKA
-const { connectProducer, sendEvent } = require("./kafka/producer");
+const { connectProducer } = require("./kafka/producer");
 const { startConsumer } = require("./kafka/consumer");
 
 // Models
@@ -36,7 +36,7 @@ app.use("/auth", authRoutes);
 app.use("/user", userRoutes);
 
 // =======================
-// 🌐 HEALTH CHECK (IMPORTANT)
+// 🌐 HEALTH CHECK
 // =======================
 app.get("/", (req, res) => {
   res.send("🚀 Smart Venue API Running (Production)");
@@ -49,6 +49,7 @@ async function connectDB() {
   try {
     await mongoose.connect(process.env.MONGO_URI);
     console.log("✅ MongoDB Connected");
+
     await seedZones();
   } catch (err) {
     console.error("❌ MongoDB Error:", err.message);
@@ -57,9 +58,9 @@ async function connectDB() {
 }
 
 // =======================
-// 🌱 SEED DATA (SAFE)
+// 🌱 SEED DATA
 // =======================
-const seedZones = async () => {
+async function seedZones() {
   try {
     const zones = [
       { name: "Gate A", lat: 25.4484, lng: 78.5685 },
@@ -85,28 +86,11 @@ const seedZones = async () => {
   } catch (err) {
     console.log("⚠️ Seed skipped:", err.message);
   }
-};
+}
 
 // =======================
 // 🔄 API ENDPOINTS
 // =======================
-
-// 🔥 Send event → Kafka
-app.post("/zone", async (req, res) => {
-  try {
-    await sendEvent("zone-updates", req.body);
-
-    res.json({
-      success: true,
-      message: "Event sent to Kafka",
-    });
-  } catch (err) {
-    console.error("❌ Kafka Send Error:", err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// 🔥 Get zones
 app.get("/zones", async (req, res) => {
   try {
     const zones = await Zone.find();
@@ -127,7 +111,7 @@ const io = new Server(server, {
 });
 
 // =======================
-// 🔥 REDIS SETUP (SAFE)
+// 🔥 REDIS SETUP
 // =======================
 async function setupRedis() {
   const redisUrl = process.env.REDIS_URI;
@@ -152,7 +136,7 @@ async function setupRedis() {
 
     console.log("🔥 Redis Adapter Connected");
   } catch (err) {
-    console.log("⚠️ Redis setup failed → fallback mode");
+    console.log("⚠️ Redis failed → fallback mode");
   }
 }
 
@@ -161,14 +145,6 @@ async function setupRedis() {
 // =======================
 io.on("connection", (socket) => {
   console.log("🟢 User connected:", socket.id);
-
-  socket.on("updateZone", async (data) => {
-    try {
-      await sendEvent("zone-updates", data);
-    } catch (err) {
-      console.log("Socket Error:", err.message);
-    }
-  });
 
   socket.on("disconnect", () => {
     console.log("🔴 User disconnected:", socket.id);
@@ -182,25 +158,28 @@ const PORT = process.env.PORT || 5000;
 
 async function startServer() {
   try {
+    console.log("🚀 Starting server...");
+
     await connectDB();
 
     await setupRedis();
 
-    await connectProducer();
-    console.log("🔥 Kafka Producer Connected");
-
-    // ✅ CRITICAL: PUBLIC ACCESS FIX
+    // 🔥 START SERVER FIRST (IMPORTANT)
     server.listen(PORT, "0.0.0.0", () => {
       console.log(`🚀 Server running on port ${PORT}`);
     });
 
-    // ✅ NON-BLOCKING CONSUMER
+    // 🔥 CONNECT KAFKA PRODUCER (NON-BLOCKING)
+    connectProducer().catch((err) =>
+      console.log("⚠️ Kafka producer failed:", err.message)
+    );
+
+    // 🔥 START CONSUMER (NON-BLOCKING)
     setTimeout(() => {
-      console.log("🔥 Starting Kafka consumer...");
       startConsumer(io).catch((err) =>
-        console.error("❌ Consumer crash:", err.message)
+        console.log("⚠️ Kafka consumer failed:", err.message)
       );
-    }, 1000);
+    }, 2000);
 
   } catch (err) {
     console.error("❌ Startup Error:", err.message);
@@ -211,7 +190,7 @@ async function startServer() {
 startServer();
 
 // =======================
-// 🛑 GLOBAL ERROR HANDLER
+// 🛑 GLOBAL ERROR HANDLING
 // =======================
 process.on("uncaughtException", (err) => {
   console.error("❌ Uncaught Exception:", err.message);
