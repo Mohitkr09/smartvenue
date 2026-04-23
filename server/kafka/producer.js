@@ -3,10 +3,9 @@
 const { Kafka, logLevel } = require("kafkajs");
 
 // ==============================
-// 🧠 KAFKA SETUP (FIXED)
+// 🧠 KAFKA SETUP
 // ==============================
 
-// ✅ Use ENV or fallback to localhost (important for EC2 host)
 const BROKER = process.env.KAFKA_BROKER || "localhost:9092";
 
 const kafka = new Kafka({
@@ -57,7 +56,7 @@ const connectProducer = async () => {
     isConnecting = false;
     console.error("❌ Kafka Connection Error:", err.message);
 
-    // 🔁 Retry connection after delay
+    // 🔁 Retry connection (non-blocking)
     setTimeout(() => {
       console.log("🔄 Retrying Kafka connection...");
       connectProducer();
@@ -66,10 +65,10 @@ const connectProducer = async () => {
 };
 
 // ==============================
-// 🔁 RETRY WRAPPER
+// 🔁 RETRY WRAPPER (SAFE)
 // ==============================
 
-const retrySend = async (fn, retries = 3) => {
+const retrySend = async (fn, retries = 2) => {
   try {
     return await fn();
   } catch (err) {
@@ -82,13 +81,16 @@ const retrySend = async (fn, retries = 3) => {
 };
 
 // ==============================
-// 📤 SEND EVENT
+// 📤 SEND EVENT (NON-BLOCKING)
 // ==============================
 
 const sendEvent = async (topic, data) => {
   try {
+    // 🔴 Don't block API if Kafka is down
     if (!isConnected) {
-      await connectProducer();
+      connectProducer(); // async retry
+      console.log("⚠️ Kafka not ready → skipping send");
+      return;
     }
 
     if (!data) {
@@ -106,7 +108,7 @@ const sendEvent = async (topic, data) => {
       producer.send({
         topic,
         messages: [message],
-        acks: -1, // wait for all replicas
+        acks: 1, // safer for single broker
       })
     );
 
@@ -124,7 +126,9 @@ const sendEvent = async (topic, data) => {
 const sendBatchEvents = async (topic, events = []) => {
   try {
     if (!isConnected) {
-      await connectProducer();
+      connectProducer();
+      console.log("⚠️ Kafka not ready → skipping batch");
+      return;
     }
 
     if (!events.length) return;
@@ -139,7 +143,7 @@ const sendBatchEvents = async (topic, events = []) => {
       producer.send({
         topic,
         messages,
-        acks: -1,
+        acks: 1,
       })
     );
 
@@ -170,9 +174,7 @@ const disconnectProducer = async () => {
 // 🧪 HEALTH CHECK
 // ==============================
 
-const isProducerHealthy = () => {
-  return isConnected;
-};
+const isProducerHealthy = () => isConnected;
 
 // ==============================
 // 📤 EXPORTS

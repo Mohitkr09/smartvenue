@@ -3,10 +3,9 @@
 const { Kafka } = require("kafkajs");
 
 // ==============================
-// 🧠 KAFKA SETUP (FIXED)
+// 🧠 KAFKA SETUP
 // ==============================
 
-// ✅ Always fallback to localhost (important for EC2 host)
 const BROKER = process.env.KAFKA_BROKER || "localhost:9092";
 
 const kafka = new Kafka({
@@ -19,9 +18,8 @@ const kafka = new Kafka({
   },
 });
 
-const consumer = kafka.consumer({
-  groupId: "zone-group",
-});
+let consumer = null;
+let isRunning = false;
 
 // ==============================
 // 🔁 SAFE JSON PARSE
@@ -37,13 +35,22 @@ const safeParse = (data) => {
 };
 
 // ==============================
-// 🚀 START CONSUMER
+// 🚀 START CONSUMER (SAFE)
 // ==============================
 
 const startConsumer = async (io) => {
+  if (isRunning) {
+    console.log("⚠️ Consumer already running");
+    return;
+  }
+
   try {
     console.log("🔥 Starting Kafka Consumer...");
-    console.log("📡 Using broker:", BROKER);
+    console.log("📡 Broker:", BROKER);
+
+    consumer = kafka.consumer({
+      groupId: "zone-group",
+    });
 
     await consumer.connect();
     console.log("✅ Kafka Consumer Connected");
@@ -55,8 +62,10 @@ const startConsumer = async (io) => {
 
     console.log("📡 Subscribed to topic: zone-updates");
 
+    isRunning = true;
+
     await consumer.run({
-      eachMessage: async ({ topic, partition, message }) => {
+      eachMessage: async ({ message }) => {
         try {
           const raw = message.value.toString();
           const data = safeParse(raw);
@@ -97,8 +106,6 @@ const startConsumer = async (io) => {
           if (io) {
             io.emit("zoneUpdate", processed);
             console.log("📤 Emitted to frontend");
-          } else {
-            console.log("⚠️ Socket.io not available");
           }
 
         } catch (err) {
@@ -109,10 +116,11 @@ const startConsumer = async (io) => {
 
   } catch (err) {
     console.log("❌ Consumer Error:", err.message);
+    isRunning = false;
 
-    // 🔁 AUTO RETRY (VERY IMPORTANT)
+    // 🔁 Retry after delay (non-blocking)
     setTimeout(() => {
-      console.log("🔄 Restarting consumer...");
+      console.log("🔄 Retrying Kafka Consumer...");
       startConsumer(io);
     }, 5000);
   }
@@ -124,12 +132,19 @@ const startConsumer = async (io) => {
 
 const disconnectConsumer = async () => {
   try {
-    await consumer.disconnect();
-    console.log("🔌 Consumer Disconnected");
+    if (consumer) {
+      await consumer.disconnect();
+      isRunning = false;
+      console.log("🔌 Consumer Disconnected");
+    }
   } catch (err) {
     console.log("❌ Disconnect Error:", err.message);
   }
 };
+
+// ==============================
+// 📤 EXPORTS
+// ==============================
 
 module.exports = {
   startConsumer,
