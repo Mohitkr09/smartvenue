@@ -1,85 +1,103 @@
 import { View, Text, FlatList, StyleSheet } from "react-native";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
 
-// ✅ USE YOUR DOMAIN (IMPORTANT)
+// ==============================
+// 🌐 CONFIG
+// ==============================
 const SOCKET_URL = "https://smartvenue.online";
 
 export default function Alerts() {
   const [alerts, setAlerts] = useState([]);
-  const [socket, setSocket] = useState(null);
+  const socketRef = useRef(null);
 
   useEffect(() => {
-    console.log("🚀 Connecting socket...");
+    console.log("🚀 Initializing socket...");
 
-    const newSocket = io(SOCKET_URL, {
-      transports: ["websocket"],
-      reconnection: true,
-      reconnectionAttempts: Infinity,
-      reconnectionDelay: 2000,
-      timeout: 10000,
-    });
+    try {
+      // ✅ Prevent multiple connections
+      if (socketRef.current) return;
 
-    setSocket(newSocket);
+      const socket = io(SOCKET_URL, {
+        transports: ["websocket"],
+        reconnection: true,
+        reconnectionAttempts: Infinity,
+        reconnectionDelay: 2000,
+        timeout: 10000,
+        forceNew: true,
+      });
 
-    // ==============================
-    // ✅ CONNECTION EVENTS
-    // ==============================
+      socketRef.current = socket;
 
-    newSocket.on("connect", () => {
-      console.log("🟢 Connected:", newSocket.id);
-    });
+      // ==============================
+      // ✅ CONNECTION EVENTS
+      // ==============================
 
-    newSocket.on("disconnect", (reason) => {
-      console.log("🔴 Disconnected:", reason);
-    });
+      socket.on("connect", () => {
+        console.log("🟢 Connected:", socket.id);
+      });
 
-    newSocket.on("connect_error", (err) => {
-      console.log("❌ Socket Error:", err.message);
-    });
+      socket.on("disconnect", (reason) => {
+        console.log("🔴 Disconnected:", reason);
+      });
 
-    // ==============================
-    // 📡 REAL-TIME ALERTS (FIXED EVENT)
-    // ==============================
+      socket.on("connect_error", (err) => {
+        console.log("❌ Socket Error:", err.message);
+      });
 
-    newSocket.on("zoneUpdate", (zone) => {
-      try {
-        if (!zone) return;
+      // ==============================
+      // 📡 REAL-TIME ALERTS
+      // ==============================
 
-        // 🚨 High crowd
-        if (zone.crowdLevel > 80) {
+      socket.on("zoneUpdate", (zone) => {
+        try {
+          if (!zone || typeof zone !== "object") return;
+
+          const name = zone.name || "Zone";
+          const crowd = zone.crowdLevel ?? 0;
+
+          let message = null;
+
+          if (crowd > 80) {
+            message = `🚨 ${name} is overcrowded!`;
+          } else if (crowd < 30) {
+            message = `✅ ${name} is now free`;
+          }
+
+          if (!message) return;
+
           const newAlert = {
             id: Date.now(),
-            message: `🚨 ${zone.name || "Zone"} is overcrowded!`,
+            message,
             time: new Date().toLocaleTimeString(),
           };
 
-          setAlerts((prev) => [newAlert, ...prev]);
-        }
+          // ✅ prevent duplicate spam
+          setAlerts((prev) => {
+            if (prev.length && prev[0].message === message) return prev;
+            return [newAlert, ...prev];
+          });
 
-        // ✅ Low crowd
-        if (zone.crowdLevel < 30) {
-          const newAlert = {
-            id: Date.now(),
-            message: `✅ ${zone.name || "Zone"} is now free`,
-            time: new Date().toLocaleTimeString(),
-          };
-
-          setAlerts((prev) => [newAlert, ...prev]);
+        } catch (err) {
+          console.log("❌ Alert processing error:", err.message);
         }
-      } catch (err) {
-        console.log("❌ Alert error:", err.message);
-      }
-    });
+      });
+
+    } catch (err) {
+      console.log("❌ Socket init crash:", err.message);
+    }
 
     // ==============================
-    // 🔌 CLEANUP (VERY IMPORTANT)
+    // 🔌 CLEANUP
     // ==============================
-
     return () => {
       console.log("🔌 Cleaning socket...");
-      newSocket.removeAllListeners();
-      newSocket.disconnect();
+
+      if (socketRef.current) {
+        socketRef.current.removeAllListeners();
+        socketRef.current.disconnect();
+        socketRef.current = null;
+      }
     };
   }, []);
 
@@ -105,7 +123,9 @@ export default function Alerts() {
   );
 }
 
+// ==============================
 // 🎨 STYLES
+// ==============================
 const styles = StyleSheet.create({
   container: {
     flex: 1,
