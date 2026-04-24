@@ -5,6 +5,7 @@ const http = require("http");
 const { Server } = require("socket.io");
 const cors = require("cors");
 const mongoose = require("mongoose");
+const morgan = require("morgan");
 
 // 🔥 REDIS
 const { createAdapter } = require("@socket.io/redis-adapter");
@@ -24,10 +25,21 @@ const userRoutes = require("./routes/userRoutes");
 const app = express();
 
 // =======================
-// 🔧 MIDDLEWARE
+// 🔧 MIDDLEWARE (SECURE)
 // =======================
-app.use(cors({ origin: "*" }));
+app.use(
+  cors({
+    origin: [
+      "https://smartvenue.online",
+      "http://localhost:19006", // expo dev
+    ],
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    credentials: true,
+  })
+);
+
 app.use(express.json());
+app.use(morgan("dev")); // 🔥 request logging
 
 // =======================
 // 🔄 ROUTES
@@ -39,7 +51,11 @@ app.use("/user", userRoutes);
 // 🌐 HEALTH CHECK
 // =======================
 app.get("/", (req, res) => {
-  res.send("🚀 Smart Venue API Running");
+  res.json({
+    status: "running",
+    service: "Smart Venue API",
+    version: "1.0",
+  });
 });
 
 // =======================
@@ -108,7 +124,10 @@ app.get("/zones", async (req, res) => {
 const server = http.createServer(app);
 
 const io = new Server(server, {
-  cors: { origin: "*" },
+  cors: {
+    origin: "https://smartvenue.online",
+    methods: ["GET", "POST"],
+  },
 });
 
 // =======================
@@ -167,13 +186,12 @@ async function startServer() {
     await connectDB();
     await setupRedis();
 
-    // ✅ SERVER START FIRST
     server.listen(PORT, "0.0.0.0", () => {
       console.log(`🚀 Server running on port ${PORT}`);
     });
 
     // ===============================
-    // 🔥 SAFE KAFKA (OPTIONAL)
+    // 🔥 KAFKA (SAFE ENABLE)
     // ===============================
     const BROKER = process.env.KAFKA_BROKER;
 
@@ -192,7 +210,7 @@ async function startServer() {
         );
       }, 2000);
     } else {
-      console.log("⚠️ Kafka disabled (invalid or localhost broker)");
+      console.log("⚠️ Kafka disabled");
     }
 
   } catch (err) {
