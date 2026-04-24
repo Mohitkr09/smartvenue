@@ -16,22 +16,11 @@ import * as Speech from "expo-speech";
 import { Linking } from "react-native";
 
 // ==============================
-// 🧠 CONFIG
+// 🧠 CONFIG (READY FOR NGINX)
 // ==============================
 
-// ✅ USE ELASTIC IP (FINAL FIX)
-const API_URL = "http://18.214.178.1:5000";
-
-// MAP SAFE IMPORT
-let MapView: any, Marker: any, Circle: any, AnimatedRegion: any;
-
-if (Platform.OS !== "web") {
-  const maps = require("react-native-maps");
-  MapView = maps.default;
-  Marker = maps.Marker;
-  Circle = maps.Circle;
-  AnimatedRegion = maps.AnimatedRegion;
-}
+// 👉 Change to domain later (no :5000 needed after nginx)
+const API_URL = "http://18.214.178.1";
 
 // ==============================
 // 📍 EVENT LOCATION
@@ -42,11 +31,23 @@ const EVENT = {
   radius: 1200,
 };
 
+// MAP SAFE IMPORT
+let MapView: any, Marker: any, Circle: any, AnimatedRegion: any;
+if (Platform.OS !== "web") {
+  const maps = require("react-native-maps");
+  MapView = maps.default;
+  Marker = maps.Marker;
+  Circle = maps.Circle;
+  AnimatedRegion = maps.AnimatedRegion;
+}
+
 export default function HomeScreen() {
   const [zones, setZones] = useState<any[]>([]);
   const [location, setLocation] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [bestGate, setBestGate] = useState<any>(null);
+
+  const lastSpokenRef = useRef("");
 
   const markerRef = useRef(
     Platform.OS !== "web"
@@ -63,21 +64,10 @@ export default function HomeScreen() {
   // 🚀 INIT
   // ==============================
   useEffect(() => {
-    console.log("🚀 Connecting socket...");
-
-    connectSocket(API_URL); // ✅ IMPORTANT FIX
-
+    connectSocket(API_URL);
     const socket = getSocket();
 
-    socket.on("connect", () => {
-      console.log("🟢 Socket Connected:", socket.id);
-    });
-
     socket.on("zoneUpdate", handleRealtime);
-
-    socket.on("connect_error", (err) => {
-      console.log("❌ Socket Error:", err.message);
-    });
 
     init();
 
@@ -96,21 +86,24 @@ export default function HomeScreen() {
   // 📡 REAL-TIME HANDLER
   // ==============================
   const handleRealtime = (data: any) => {
-    console.log("🔥 LIVE UPDATE:", data);
+    console.log("🔥 LIVE:", data);
 
     setZones((prev) => {
-      const exists = prev.find((z) => z.name === data.name);
-
-      // 🔊 Voice alert
-      if (data.crowdLevel >= 85) {
-        Speech.speak(`High crowd at ${data.name}`);
-      }
-
-      const updated = exists
+      const updated = prev.some((z) => z.name === data.name)
         ? prev.map((z) => (z.name === data.name ? data : z))
         : [...prev, data];
 
       findBestGate(updated);
+
+      // 🔊 VOICE ALERT (ANTI-SPAM)
+      if (
+        data.crowdLevel >= 85 &&
+        lastSpokenRef.current !== data.name
+      ) {
+        Speech.speak(`High crowd at ${data.name}`);
+        lastSpokenRef.current = data.name;
+      }
+
       return updated;
     });
   };
@@ -124,24 +117,19 @@ export default function HomeScreen() {
         await Location.requestForegroundPermissionsAsync();
 
       if (status !== "granted") {
-        Alert.alert("Permission required");
+        Alert.alert("Location permission required");
         return;
       }
 
       const loc = await Location.getCurrentPositionAsync({});
       setLocation(loc.coords);
 
-      if (markerRef) {
-        markerRef.setValue(loc.coords);
-      }
+      markerRef?.setValue(loc.coords);
     } catch (err) {
       console.log("Location error:", err);
     }
   };
 
-  // ==============================
-  // 🔄 REFRESH LOCATION
-  // ==============================
   const refreshLocation = async () => {
     await getLocation();
     Speech.speak("Location updated");
@@ -153,21 +141,16 @@ export default function HomeScreen() {
   const fetchZones = async () => {
     try {
       const res = await axios.get(`${API_URL}/zones`);
-      const data = res.data || [];
-
-      console.log("📦 Zones fetched:", data);
-
-      setZones(data);
-      findBestGate(data);
-    } catch (err) {
-      console.log("❌ Fetch error:", err.message);
+      setZones(res.data || []);
+      findBestGate(res.data || []);
+    } catch (err: any) {
+      console.log("❌ API error:", err.message);
     }
-
     setLoading(false);
   };
 
   // ==============================
-  // 📏 DISTANCE CALC
+  // 📏 DISTANCE + ETA
   // ==============================
   const getDistance = (lat1, lon1, lat2, lon2) => {
     const R = 6371;
@@ -184,7 +167,7 @@ export default function HomeScreen() {
   };
 
   // ==============================
-  // 🧠 BEST GATE LOGIC
+  // 🧠 BEST GATE
   // ==============================
   const findBestGate = (data) => {
     if (!location || !data.length) return;
@@ -200,30 +183,32 @@ export default function HomeScreen() {
         g.lng
       );
 
-      const currentScore = dist + g.crowdLevel * 10;
+      const s = dist + g.crowdLevel * 10;
 
-      if (currentScore < score) {
-        score = currentScore;
-        best = g;
+      if (s < score) {
+        score = s;
+        best = { ...g, distance: dist };
       }
     });
 
     setBestGate(best);
 
     if (best) {
-      Speech.speak(`Best gate is ${best.name}`);
+      const minutes = Math.round(best.distance / 80); // walking approx
+      Speech.speak(
+        `Best gate is ${best.name}. ${minutes} minutes away`
+      );
     }
   };
 
   // ==============================
-  // 🚀 NAVIGATION
+  // 🧭 NAVIGATION
   // ==============================
   const navigate = (gate) => {
     Linking.openURL(
       `https://www.google.com/maps/dir/?api=1&destination=${gate.lat},${gate.lng}`
     );
-
-    Speech.speak(`Navigating to ${gate.name}`);
+    Speech.speak(`Navigate to ${gate.name}`);
   };
 
   // ==============================
@@ -240,7 +225,7 @@ export default function HomeScreen() {
   if (Platform.OS === "web") {
     return (
       <View style={styles.center}>
-        <Text>🖥️ Map not supported on web</Text>
+        <Text>Map not supported on web</Text>
       </View>
     );
   }
@@ -277,20 +262,15 @@ export default function HomeScreen() {
         ))}
       </MapView>
 
-      {/* 🔥 PANEL */}
       <ScrollView style={styles.panel}>
         <TouchableOpacity style={styles.refresh} onPress={refreshLocation}>
-          <Text style={{ color: "white" }}>🔄 Refresh Location</Text>
+          <Text style={{ color: "white" }}>Refresh Location</Text>
         </TouchableOpacity>
-
-        {!zones.length && (
-          <Text style={styles.text}>❌ No event detected</Text>
-        )}
 
         {bestGate && (
           <View style={styles.best}>
             <Text style={styles.bestText}>
-              ⭐ Best Gate: {bestGate.name}
+              ⭐ {bestGate.name} ({Math.round(bestGate.distance)}m)
             </Text>
           </View>
         )}
@@ -298,16 +278,13 @@ export default function HomeScreen() {
         {zones.map((g, i) => (
           <View key={i} style={styles.card}>
             <Text style={styles.gate}>{g.name}</Text>
-
-            <Text style={styles.text}>
-              👥 Crowd: {g.crowdLevel}
-            </Text>
+            <Text style={styles.text}>👥 {g.crowdLevel}</Text>
 
             <TouchableOpacity
               style={styles.btn}
               onPress={() => navigate(g)}
             >
-              <Text style={styles.btnText}>Open in Maps</Text>
+              <Text style={styles.btnText}>Open Maps</Text>
             </TouchableOpacity>
           </View>
         ))}
