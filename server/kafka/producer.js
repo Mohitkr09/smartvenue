@@ -5,19 +5,17 @@ require("dotenv").config(); // ✅ MUST BE FIRST
 const { Kafka, logLevel } = require("kafkajs");
 
 // ==============================
-// 🧠 KAFKA SETUP
+// 🧠 KAFKA CONFIG
 // ==============================
 
 const BROKER = process.env.KAFKA_BROKER || "localhost:9092";
 
-// ✅ DEBUG (VERY IMPORTANT)
 console.log("🔥 ENV KAFKA_BROKER =", process.env.KAFKA_BROKER);
 console.log("🔥 USING BROKER =", BROKER);
 
 const kafka = new Kafka({
   clientId: "smart-venue",
   brokers: [BROKER],
-
   logLevel: logLevel.NOTHING,
 
   retry: {
@@ -27,12 +25,16 @@ const kafka = new Kafka({
 });
 
 // ==============================
-// 🚀 PRODUCER
+// 🚀 PRODUCER INSTANCE
 // ==============================
 
 const producer = kafka.producer({
   allowAutoTopicCreation: true,
 });
+
+// ==============================
+// 🧠 STATE
+// ==============================
 
 let isConnected = false;
 let isConnecting = false;
@@ -42,8 +44,9 @@ let isConnecting = false;
 // ==============================
 
 const connectProducer = async () => {
-  if (isConnected) return;
-  if (isConnecting) return;
+  if (isConnected || isConnecting) {
+    return;
+  }
 
   try {
     isConnecting = true;
@@ -57,13 +60,12 @@ const connectProducer = async () => {
     isConnecting = false;
 
     console.log("✅ Kafka Producer Connected");
-
   } catch (err) {
     isConnecting = false;
 
     console.error("❌ Kafka Connection Error:", err.message);
 
-    // 🔁 Retry (non-blocking)
+    // 🔁 Retry connection (non-blocking)
     setTimeout(() => {
       console.log("🔄 Retrying Kafka connection...");
       connectProducer();
@@ -88,19 +90,19 @@ const retrySend = async (fn, retries = 2) => {
 };
 
 // ==============================
-// 📤 SEND EVENT (SAFE + NON-BLOCKING)
+// 📤 SEND EVENT (SAFE)
 // ==============================
 
 const sendEvent = async (topic, data) => {
   try {
-    if (!data) {
-      console.warn("⚠️ Empty data skipped");
+    if (!data || typeof data !== "object") {
+      console.warn("⚠️ Invalid/empty data skipped");
       return;
     }
 
-    // 🔴 If Kafka not ready → don't block API
+    // 🚫 Do not block API if Kafka not ready
     if (!isConnected) {
-      connectProducer();
+      connectProducer(); // async retry
       console.log("⚠️ Kafka not ready → skipping send");
       return;
     }
@@ -115,12 +117,11 @@ const sendEvent = async (topic, data) => {
       producer.send({
         topic,
         messages: [message],
-        acks: 1, // ✅ good for single broker
+        acks: 1, // ✅ best for single broker
       })
     );
 
     console.log(`📤 Kafka [${topic}] →`, data);
-
   } catch (err) {
     console.error("❌ Kafka Send Error:", err.message);
   }
@@ -132,7 +133,9 @@ const sendEvent = async (topic, data) => {
 
 const sendBatchEvents = async (topic, events = []) => {
   try {
-    if (!events.length) return;
+    if (!Array.isArray(events) || events.length === 0) {
+      return;
+    }
 
     if (!isConnected) {
       connectProducer();
@@ -141,8 +144,8 @@ const sendBatchEvents = async (topic, events = []) => {
     }
 
     const messages = events.map((data) => ({
-      key: String(data.gate_id || "default"),
-      value: JSON.stringify(data),
+      key: String(data?.gate_id || "default"),
+      value: JSON.stringify(data || {}),
       timestamp: Date.now().toString(),
     }));
 
@@ -155,7 +158,6 @@ const sendBatchEvents = async (topic, events = []) => {
     );
 
     console.log(`📦 Batch sent (${events.length}) → ${topic}`);
-
   } catch (err) {
     console.error("❌ Batch Send Error:", err.message);
   }

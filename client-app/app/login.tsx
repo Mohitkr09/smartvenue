@@ -15,12 +15,9 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
 
 // ==============================
-// 🌐 CONFIG
+// 🌐 API CONFIG (FINAL)
 // ==============================
-const API_URL =
-  __DEV__
-    ? "http://18.214.178.1:5000" // dev
-    : "https://smartvenue.online"; // production
+const API_URL = "https://smartvenue.online"; // ✅ ONLY HTTPS
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -37,7 +34,6 @@ export default function Login() {
       return Alert.alert("Error", "Please fill all fields");
     }
 
-    // basic email validation
     if (!email.includes("@")) {
       return Alert.alert("Error", "Invalid email address");
     }
@@ -52,11 +48,11 @@ export default function Login() {
           password,
         },
         {
-          timeout: 10000, // 🔥 prevent hanging
+          timeout: 10000,
         }
       );
 
-      const token = res.data?.token;
+      const token = res?.data?.token;
 
       if (!token) {
         throw new Error("No token received");
@@ -66,16 +62,16 @@ export default function Login() {
 
       Alert.alert("Success", "Logged in successfully!");
 
-      router.replace("/"); // go to app
+      router.replace("/");
     } catch (err: any) {
-      console.log("❌ Login Error:", err?.response?.data || err.message);
+      console.log("❌ Login Error:", err?.message);
 
       if (err.response?.data?.msg) {
         Alert.alert("Error", err.response.data.msg);
       } else if (err.code === "ECONNABORTED") {
         Alert.alert("Error", "Request timeout. Try again.");
       } else {
-        Alert.alert("Error", "Login failed. Check your connection.");
+        Alert.alert("Error", "Login failed. Check connection.");
       }
     } finally {
       setLoading(false);

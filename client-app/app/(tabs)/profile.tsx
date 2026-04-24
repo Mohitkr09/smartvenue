@@ -14,12 +14,9 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
 
 // ==============================
-// 🌐 CONFIG (PRODUCTION)
+// 🌐 API CONFIG (FINAL)
 // ==============================
-const API_URL =
-  __DEV__
-    ? "http://18.214.178.1:5000" // dev
-    : "https://smartvenue.online"; // production
+const API_URL = "https://smartvenue.online"; // ✅ ALWAYS HTTPS
 
 export default function Profile() {
   const [user, setUser] = useState<any>(null);
@@ -44,14 +41,14 @@ export default function Profile() {
         headers: {
           Authorization: `Bearer ${token}`,
         },
-        timeout: 10000, // 🔥 prevent hanging
+        timeout: 10000,
       });
 
-      setUser(res.data?.user || null);
+      setUser(res?.data?.user || null);
     } catch (err: any) {
-      console.log("❌ Profile Error:", err?.response?.data || err.message);
+      console.log("❌ Profile Error:", err?.message);
 
-      // 🔥 Token expired / invalid → logout
+      // logout on error
       await AsyncStorage.removeItem("token");
       router.replace("/login");
     } finally {
@@ -73,7 +70,7 @@ export default function Profile() {
   // 🚪 LOGOUT
   // ==============================
   const logout = async () => {
-    Alert.alert("Logout", "Are you sure you want to logout?", [
+    Alert.alert("Logout", "Are you sure?", [
       { text: "Cancel", style: "cancel" },
       {
         text: "Logout",
@@ -87,7 +84,7 @@ export default function Profile() {
   };
 
   // ==============================
-  // ⏳ LOADING
+  // ⏳ LOADING UI
   // ==============================
   if (loading) {
     return (
@@ -99,7 +96,7 @@ export default function Profile() {
   }
 
   // ==============================
-  // ❌ NO USER
+  // ❌ ERROR UI
   // ==============================
   if (!user) {
     return (
@@ -118,10 +115,7 @@ export default function Profile() {
     <ScrollView
       style={styles.container}
       refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={onRefresh}
-        />
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
       }
     >
       {/* HEADER */}
@@ -130,32 +124,23 @@ export default function Profile() {
       {/* AVATAR */}
       <View style={styles.avatar}>
         <Text style={styles.avatarText}>
-          {user?.name?.charAt(0)?.toUpperCase() || "U"}
+          {(user?.name?.charAt?.(0) || "U").toUpperCase()}
         </Text>
       </View>
 
       {/* USER INFO */}
       <View style={styles.card}>
         <Text style={styles.label}>Full Name</Text>
-        <Text style={styles.value}>
-          {user?.name || "N/A"}
-        </Text>
+        <Text style={styles.value}>{user?.name || "N/A"}</Text>
 
         <Text style={styles.label}>Email Address</Text>
-        <Text style={styles.value}>
-          {user?.email || "N/A"}
-        </Text>
+        <Text style={styles.value}>{user?.email || "N/A"}</Text>
       </View>
 
       {/* ACTIONS */}
       <View style={styles.actions}>
-        <TouchableOpacity
-          style={styles.logoutBtn}
-          onPress={logout}
-        >
-          <Text style={styles.logoutText}>
-            🚪 Logout
-          </Text>
+        <TouchableOpacity style={styles.logoutBtn} onPress={logout}>
+          <Text style={styles.logoutText}>🚪 Logout</Text>
         </TouchableOpacity>
       </View>
     </ScrollView>

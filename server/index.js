@@ -31,7 +31,7 @@ app.use(
   cors({
     origin: [
       "https://smartvenue.online",
-      "http://localhost:19006", // expo dev
+      "http://localhost:19006",
     ],
     methods: ["GET", "POST", "PUT", "DELETE"],
     credentials: true,
@@ -39,7 +39,7 @@ app.use(
 );
 
 app.use(express.json());
-app.use(morgan("dev")); // 🔥 request logging
+app.use(morgan("dev"));
 
 // =======================
 // 🔄 ROUTES
@@ -54,7 +54,6 @@ app.get("/", (req, res) => {
   res.json({
     status: "running",
     service: "Smart Venue API",
-    version: "1.0",
   });
 });
 
@@ -128,6 +127,7 @@ const io = new Server(server, {
     origin: "https://smartvenue.online",
     methods: ["GET", "POST"],
   },
+  path: "/socket.io", // ✅ IMPORTANT
 });
 
 // =======================
@@ -191,13 +191,13 @@ async function startServer() {
     });
 
     // ===============================
-    // 🔥 KAFKA (SAFE ENABLE)
+    // 🔥 KAFKA SAFE ENABLE
     // ===============================
     const BROKER = process.env.KAFKA_BROKER;
 
     console.log("🔥 ENV KAFKA_BROKER =", BROKER);
 
-    if (BROKER && BROKER !== "localhost:9092") {
+    if (BROKER && !BROKER.includes("localhost")) {
       console.log("📡 Kafka enabled:", BROKER);
 
       connectProducer().catch((err) =>
@@ -210,7 +210,7 @@ async function startServer() {
         );
       }, 2000);
     } else {
-      console.log("⚠️ Kafka disabled");
+      console.log("⚠️ Kafka disabled (invalid broker)");
     }
 
   } catch (err) {

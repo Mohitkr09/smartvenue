@@ -14,12 +14,9 @@ import axios from "axios";
 import { useRouter } from "expo-router";
 
 // ==============================
-// 🌐 CONFIG
+// 🌐 API CONFIG (FINAL)
 // ==============================
-const API_URL =
-  __DEV__
-    ? "http://18.214.178.1:5000" // dev
-    : "https://smartvenue.online"; // production
+const API_URL = "https://smartvenue.online"; // ✅ ONLY HTTPS
 
 export default function Register() {
   const router = useRouter();
@@ -56,7 +53,7 @@ export default function Register() {
           password,
         },
         {
-          timeout: 10000, // 🔥 prevent hanging
+          timeout: 10000,
         }
       );
 
@@ -64,7 +61,7 @@ export default function Register() {
 
       router.replace("/login");
     } catch (err: any) {
-      console.log("❌ Register Error:", err?.response?.data || err.message);
+      console.log("❌ Register Error:", err?.message);
 
       if (err.response?.data?.msg) {
         Alert.alert("Error", err.response.data.msg);

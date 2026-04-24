@@ -1,48 +1,44 @@
 import { io } from "socket.io-client";
 
 // ==============================
-// 🧠 CONFIG (PRODUCTION READY)
+// 🌐 SOCKET CONFIG (FINAL)
 // ==============================
 
-// ✅ Use DOMAIN in production
-const SOCKET_URL = __DEV__
-  ? "http://18.214.178.1:5000" // dev (Expo / local testing)
-  : "https://smartvenue.online"; // production (NGINX + SSL)
+// ✅ ALWAYS use HTTPS domain
+const SOCKET_URL = "https://smartvenue.online";
 
 let socket = null;
 
 // ==============================
 // 🔌 CONNECT SOCKET (SAFE)
 // ==============================
-export const connectSocket = (url = SOCKET_URL) => {
+export const connectSocket = () => {
   try {
-    // ✅ prevent duplicate connection
+    // prevent duplicate connection
     if (socket && socket.connected) {
       console.log("⚠️ Socket already connected");
       return socket;
     }
 
-    // ✅ clean old socket (important)
+    // cleanup old socket
     if (socket) {
       socket.removeAllListeners();
       socket.disconnect();
       socket = null;
     }
 
-    console.log("🚀 Connecting to:", url);
+    console.log("🚀 Connecting to socket:", SOCKET_URL);
 
-    socket = io(url, {
-      transports: ["websocket"], // ✅ BEST for mobile apps
+    socket = io(SOCKET_URL, {
+      transports: ["websocket"], // mobile safe
       reconnection: true,
       reconnectionAttempts: Infinity,
       reconnectionDelay: 2000,
       timeout: 10000,
 
-      // ✅ SSL safe config
-      secure: url.startsWith("https"),
-      rejectUnauthorized: false, // 🔥 important for mobile + self-signed issues
+      // ✅ IMPORTANT FIX
+      path: "/socket.io", // must match backend
 
-      // ✅ stability
       forceNew: true,
     });
 
@@ -51,15 +47,15 @@ export const connectSocket = (url = SOCKET_URL) => {
     // ==============================
 
     socket.on("connect", () => {
-      console.log("🟢 Socket Connected:", socket.id);
+      console.log("🟢 Connected:", socket.id);
     });
 
     socket.on("disconnect", (reason) => {
-      console.log("🔴 Socket Disconnected:", reason);
+      console.log("🔴 Disconnected:", reason);
     });
 
     socket.on("connect_error", (err) => {
-      console.log("❌ Connection Error:", err.message);
+      console.log("❌ Socket Error:", err.message);
     });
 
     socket.io.on("reconnect_attempt", () => {
@@ -70,16 +66,17 @@ export const connectSocket = (url = SOCKET_URL) => {
       console.log("✅ Reconnected");
     });
 
-    socket.io.on("reconnect_error", (err) => {
-      console.log("❌ Reconnect Error:", err.message);
-    });
-
     // ==============================
     // 📡 REAL-TIME EVENT
     // ==============================
 
     socket.on("zoneUpdate", (data) => {
-      console.log("🔥 LIVE UPDATE:", data);
+      try {
+        if (!data) return;
+        console.log("🔥 LIVE UPDATE:", data);
+      } catch (err) {
+        console.log("❌ zoneUpdate error:", err.message);
+      }
     });
 
     return socket;
@@ -90,12 +87,9 @@ export const connectSocket = (url = SOCKET_URL) => {
 };
 
 // ==============================
-// 🔌 GET SOCKET INSTANCE
+// 🔌 GET SOCKET
 // ==============================
 export const getSocket = () => {
-  if (!socket) {
-    console.log("⚠️ Socket not initialized");
-  }
   return socket;
 };
 
@@ -105,7 +99,7 @@ export const getSocket = () => {
 export const disconnectSocket = () => {
   try {
     if (socket) {
-      socket.removeAllListeners(); // ✅ prevent memory leaks
+      socket.removeAllListeners();
       socket.disconnect();
       socket = null;
       console.log("🔌 Socket disconnected");

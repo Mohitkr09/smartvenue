@@ -2,21 +2,21 @@
 
 require("dotenv").config(); // ✅ MUST BE FIRST
 
-const { Kafka } = require("kafkajs");
+const { Kafka, logLevel } = require("kafkajs");
 
 // ==============================
-// 🧠 KAFKA SETUP
+// 🧠 KAFKA CONFIG
 // ==============================
 
 const BROKER = process.env.KAFKA_BROKER || "localhost:9092";
 
-// ✅ DEBUG (VERY IMPORTANT)
 console.log("🔥 ENV KAFKA_BROKER =", process.env.KAFKA_BROKER);
 console.log("🔥 USING BROKER =", BROKER);
 
 const kafka = new Kafka({
   clientId: "smart-venue",
   brokers: [BROKER],
+  logLevel: logLevel.NOTHING,
 
   retry: {
     initialRetryTime: 300,
@@ -24,8 +24,13 @@ const kafka = new Kafka({
   },
 });
 
+// ==============================
+// 🧠 STATE
+// ==============================
+
 let consumer = null;
 let isRunning = false;
+let isConnecting = false;
 
 // ==============================
 // 🔁 SAFE JSON PARSE
@@ -41,16 +46,18 @@ const safeParse = (data) => {
 };
 
 // ==============================
-// 🚀 START CONSUMER (SAFE)
+// 🚀 START CONSUMER
 // ==============================
 
 const startConsumer = async (io) => {
-  if (isRunning) {
-    console.log("⚠️ Consumer already running");
+  if (isRunning || isConnecting) {
+    console.log("⚠️ Consumer already running/connecting");
     return;
   }
 
   try {
+    isConnecting = true;
+
     console.log("🔥 Starting Kafka Consumer...");
     console.log("📡 Broker:", BROKER);
 
@@ -58,8 +65,16 @@ const startConsumer = async (io) => {
       groupId: "zone-group",
     });
 
+    // ==============================
+    // 🔌 CONNECT
+    // ==============================
+
     await consumer.connect();
     console.log("✅ Kafka Consumer Connected");
+
+    // ==============================
+    // 📡 SUBSCRIBE
+    // ==============================
 
     await consumer.subscribe({
       topic: "zone-updates",
@@ -69,10 +84,17 @@ const startConsumer = async (io) => {
     console.log("📡 Subscribed to topic: zone-updates");
 
     isRunning = true;
+    isConnecting = false;
+
+    // ==============================
+    // 🔁 MESSAGE HANDLER
+    // ==============================
 
     await consumer.run({
       eachMessage: async ({ message }) => {
         try {
+          if (!message?.value) return;
+
           const raw = message.value.toString();
           const data = safeParse(raw);
 
@@ -81,24 +103,28 @@ const startConsumer = async (io) => {
           console.log("📊 Kafka Event:", data);
 
           // ==============================
-          // 🧠 PROCESSING LOGIC
+          // 🧠 PROCESS DATA
           // ==============================
+
+          const crowdLevel = Number(data.crowdLevel || 0);
 
           const processed = {
             ...data,
+            crowdLevel,
+
             timestamp: new Date().toISOString(),
 
             waitTime:
               data.waitTime ??
-              Math.max(1, Math.round((data.crowdLevel || 0) * 0.2)),
+              Math.max(1, Math.round(crowdLevel * 0.2)),
 
             suggestion:
-              data.crowdLevel > 70
+              crowdLevel > 70
                 ? "⚠️ Try another gate"
                 : "✅ Best gate",
 
             alert:
-              data.crowdLevel >= 85
+              crowdLevel >= 85
                 ? "🚨 High congestion"
                 : null,
           };
@@ -106,43 +132,46 @@ const startConsumer = async (io) => {
           console.log("🧠 Processed:", processed);
 
           // ==============================
-          // 📡 REAL-TIME EMIT
+          // 📡 EMIT TO SOCKET
           // ==============================
 
           if (io) {
             io.emit("zoneUpdate", processed);
-            console.log("📤 Emitted to frontend");
           } else {
-            console.log("⚠️ No socket instance");
+            console.log("⚠️ Socket.io not available");
           }
 
         } catch (err) {
-          console.log("❌ Message Processing Error:", err.message);
+          console.log("❌ Message Error:", err.message);
         }
       },
     });
 
   } catch (err) {
     console.log("❌ Consumer Error:", err.message);
-    isRunning = false;
 
-    // 🔁 Retry after delay (non-blocking)
+    isRunning = false;
+    isConnecting = false;
+
+    // 🔁 Retry safely
     setTimeout(() => {
-      console.log("🔄 Retrying Kafka Consumer...");
+      console.log("🔄 Restarting Kafka Consumer...");
       startConsumer(io);
     }, 5000);
   }
 };
 
 // ==============================
-// 🔌 CLEANUP
+// 🔌 DISCONNECT
 // ==============================
 
 const disconnectConsumer = async () => {
   try {
     if (consumer) {
       await consumer.disconnect();
+      consumer = null;
       isRunning = false;
+      isConnecting = false;
       console.log("🔌 Consumer Disconnected");
     }
   } catch (err) {
