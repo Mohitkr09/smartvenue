@@ -2,35 +2,85 @@ import { View, Text, FlatList, StyleSheet } from "react-native";
 import { useEffect, useState } from "react";
 import { io } from "socket.io-client";
 
-const socket = io("http://172.20.39.19:5000");
+// ✅ USE YOUR DOMAIN (IMPORTANT)
+const SOCKET_URL = "https://smartvenue.online";
 
 export default function Alerts() {
   const [alerts, setAlerts] = useState([]);
+  const [socket, setSocket] = useState(null);
 
   useEffect(() => {
-    socket.on("zoneUpdated", (zone) => {
-      if (zone.crowdLevel > 80) {
-        const newAlert = {
-          id: Date.now(),
-          message: `🚨 ${zone.name} is overcrowded!`,
-          time: new Date().toLocaleTimeString(),
-        };
+    console.log("🚀 Connecting socket...");
 
-        setAlerts((prev) => [newAlert, ...prev]);
-      }
+    const newSocket = io(SOCKET_URL, {
+      transports: ["websocket"],
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 2000,
+      timeout: 10000,
+    });
 
-      if (zone.crowdLevel < 30) {
-        const newAlert = {
-          id: Date.now(),
-          message: `✅ ${zone.name} is now free`,
-          time: new Date().toLocaleTimeString(),
-        };
+    setSocket(newSocket);
 
-        setAlerts((prev) => [newAlert, ...prev]);
+    // ==============================
+    // ✅ CONNECTION EVENTS
+    // ==============================
+
+    newSocket.on("connect", () => {
+      console.log("🟢 Connected:", newSocket.id);
+    });
+
+    newSocket.on("disconnect", (reason) => {
+      console.log("🔴 Disconnected:", reason);
+    });
+
+    newSocket.on("connect_error", (err) => {
+      console.log("❌ Socket Error:", err.message);
+    });
+
+    // ==============================
+    // 📡 REAL-TIME ALERTS (FIXED EVENT)
+    // ==============================
+
+    newSocket.on("zoneUpdate", (zone) => {
+      try {
+        if (!zone) return;
+
+        // 🚨 High crowd
+        if (zone.crowdLevel > 80) {
+          const newAlert = {
+            id: Date.now(),
+            message: `🚨 ${zone.name || "Zone"} is overcrowded!`,
+            time: new Date().toLocaleTimeString(),
+          };
+
+          setAlerts((prev) => [newAlert, ...prev]);
+        }
+
+        // ✅ Low crowd
+        if (zone.crowdLevel < 30) {
+          const newAlert = {
+            id: Date.now(),
+            message: `✅ ${zone.name || "Zone"} is now free`,
+            time: new Date().toLocaleTimeString(),
+          };
+
+          setAlerts((prev) => [newAlert, ...prev]);
+        }
+      } catch (err) {
+        console.log("❌ Alert error:", err.message);
       }
     });
 
-    return () => socket.off("zoneUpdated");
+    // ==============================
+    // 🔌 CLEANUP (VERY IMPORTANT)
+    // ==============================
+
+    return () => {
+      console.log("🔌 Cleaning socket...");
+      newSocket.removeAllListeners();
+      newSocket.disconnect();
+    };
   }, []);
 
   return (
@@ -55,6 +105,7 @@ export default function Alerts() {
   );
 }
 
+// 🎨 STYLES
 const styles = StyleSheet.create({
   container: {
     flex: 1,
