@@ -16,11 +16,11 @@ import * as Speech from "expo-speech";
 import { Linking } from "react-native";
 
 // ==============================
-// 🧠 CONFIG (READY FOR NGINX)
+// 🧠 CONFIG (DOMAIN BASED)
 // ==============================
 
-// 👉 Change to domain later (no :5000 needed after nginx)
-const API_URL = "http://18.214.178.1";
+// ✅ USE DOMAIN (IMPORTANT)
+const API_URL = "https://smartvenue.online";
 
 // ==============================
 // 📍 EVENT LOCATION
@@ -31,7 +31,9 @@ const EVENT = {
   radius: 1200,
 };
 
-// MAP SAFE IMPORT
+// ==============================
+// 🗺️ MAP SAFE IMPORT
+// ==============================
 let MapView: any, Marker: any, Circle: any, AnimatedRegion: any;
 if (Platform.OS !== "web") {
   const maps = require("react-native-maps");
@@ -48,6 +50,7 @@ export default function HomeScreen() {
   const [bestGate, setBestGate] = useState<any>(null);
 
   const lastSpokenRef = useRef("");
+  const lastBestGateRef = useRef("");
 
   const markerRef = useRef(
     Platform.OS !== "web"
@@ -64,8 +67,7 @@ export default function HomeScreen() {
   // 🚀 INIT
   // ==============================
   useEffect(() => {
-    connectSocket(API_URL);
-    const socket = getSocket();
+    const socket = connectSocket(); // ✅ FIXED (no URL override)
 
     socket.on("zoneUpdate", handleRealtime);
 
@@ -73,7 +75,6 @@ export default function HomeScreen() {
 
     return () => {
       socket.off("zoneUpdate", handleRealtime);
-      socket.disconnect();
     };
   }, []);
 
@@ -141,8 +142,10 @@ export default function HomeScreen() {
   const fetchZones = async () => {
     try {
       const res = await axios.get(`${API_URL}/zones`);
-      setZones(res.data || []);
-      findBestGate(res.data || []);
+      const data = res.data || [];
+
+      setZones(data);
+      findBestGate(data);
     } catch (err: any) {
       console.log("❌ API error:", err.message);
     }
@@ -150,7 +153,7 @@ export default function HomeScreen() {
   };
 
   // ==============================
-  // 📏 DISTANCE + ETA
+  // 📏 DISTANCE
   // ==============================
   const getDistance = (lat1, lon1, lat2, lon2) => {
     const R = 6371;
@@ -170,7 +173,10 @@ export default function HomeScreen() {
   // 🧠 BEST GATE
   // ==============================
   const findBestGate = (data) => {
-    if (!location || !data.length) return;
+    if (!location || !data.length) {
+      setBestGate(null);
+      return;
+    }
 
     let best = null;
     let score = Infinity;
@@ -193,8 +199,11 @@ export default function HomeScreen() {
 
     setBestGate(best);
 
-    if (best) {
-      const minutes = Math.round(best.distance / 80); // walking approx
+    // 🔊 SPEAK ONLY IF CHANGED
+    if (best && lastBestGateRef.current !== best.name) {
+      lastBestGateRef.current = best.name;
+
+      const minutes = Math.round(best.distance / 80);
       Speech.speak(
         `Best gate is ${best.name}. ${minutes} minutes away`
       );
@@ -208,7 +217,8 @@ export default function HomeScreen() {
     Linking.openURL(
       `https://www.google.com/maps/dir/?api=1&destination=${gate.lat},${gate.lng}`
     );
-    Speech.speak(`Navigate to ${gate.name}`);
+
+    Speech.speak(`Navigating to ${gate.name}`);
   };
 
   // ==============================
@@ -222,6 +232,9 @@ export default function HomeScreen() {
     );
   }
 
+  // ==============================
+  // 🖥️ WEB FALLBACK
+  // ==============================
   if (Platform.OS === "web") {
     return (
       <View style={styles.center}>
@@ -266,6 +279,10 @@ export default function HomeScreen() {
         <TouchableOpacity style={styles.refresh} onPress={refreshLocation}>
           <Text style={{ color: "white" }}>Refresh Location</Text>
         </TouchableOpacity>
+
+        {!bestGate && (
+          <Text style={styles.noEvent}>No event detected</Text>
+        )}
 
         {bestGate && (
           <View style={styles.best}>
@@ -321,6 +338,12 @@ const styles = StyleSheet.create({
   },
 
   bestText: { color: "white", fontWeight: "bold" },
+
+  noEvent: {
+    color: "#94a3b8",
+    textAlign: "center",
+    marginTop: 10,
+  },
 
   card: {
     backgroundColor: "#1e293b",

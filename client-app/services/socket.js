@@ -3,14 +3,16 @@
 import { io } from "socket.io-client";
 
 // ==============================
-// 🧠 CONFIG
+// 🧠 CONFIG (PRODUCTION)
 // ==============================
 
-// 👉 Use NGINX URL (no port needed)
-// Later replace with domain:
-// const SOCKET_URL = "https://yourdomain.com";
+// 👉 Use your domain (AFTER HTTPS)
+// fallback to http if SSL not ready yet
 
-const SOCKET_URL = "http://18.214.178.1";
+const SOCKET_URL =
+  __DEV__
+    ? "http://18.214.178.1:5000" // local dev
+    : "https://smartvenue.online"; // production
 
 let socket = null;
 
@@ -18,13 +20,13 @@ let socket = null;
 // 🔌 CONNECT SOCKET
 // ==============================
 export const connectSocket = (url = SOCKET_URL) => {
-  // 🔴 If already connected → return existing
+  // Prevent duplicate connection
   if (socket?.connected) {
     console.log("⚠️ Socket already connected");
     return socket;
   }
 
-  // 🔴 Clean old socket (important fix)
+  // Clean old instance
   if (socket) {
     socket.removeAllListeners();
     socket.disconnect();
@@ -34,11 +36,15 @@ export const connectSocket = (url = SOCKET_URL) => {
   console.log("🚀 Connecting to:", url);
 
   socket = io(url, {
-    transports: ["websocket"], // ✅ required for mobile
+    transports: ["websocket"], // ✅ best for mobile
     reconnection: true,
     reconnectionAttempts: Infinity,
     reconnectionDelay: 2000,
     timeout: 10000,
+
+    // 🔥 IMPORTANT for production stability
+    secure: url.startsWith("https"),
+    forceNew: true,
   });
 
   // ==============================
@@ -63,6 +69,10 @@ export const connectSocket = (url = SOCKET_URL) => {
 
   socket.io.on("reconnect", () => {
     console.log("✅ Reconnected");
+  });
+
+  socket.io.on("reconnect_error", (err) => {
+    console.log("❌ Reconnect Error:", err.message);
   });
 
   // ==============================
@@ -91,7 +101,7 @@ export const getSocket = () => {
 // ==============================
 export const disconnectSocket = () => {
   if (socket) {
-    socket.removeAllListeners(); // 🔥 prevent memory leaks
+    socket.removeAllListeners();
     socket.disconnect();
     socket = null;
     console.log("🔌 Socket disconnected");
