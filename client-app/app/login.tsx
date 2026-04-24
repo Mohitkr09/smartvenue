@@ -6,11 +6,21 @@ import {
   StyleSheet,
   Alert,
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import { useState } from "react";
 import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
+
+// ==============================
+// 🌐 CONFIG
+// ==============================
+const API_URL =
+  __DEV__
+    ? "http://18.214.178.1:5000" // dev
+    : "https://smartvenue.online"; // production
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -19,41 +29,67 @@ export default function Login() {
 
   const router = useRouter();
 
+  // ==============================
+  // 🔐 LOGIN FUNCTION
+  // ==============================
   const login = async () => {
-    if (!email || !password) {
+    if (!email.trim() || !password.trim()) {
       return Alert.alert("Error", "Please fill all fields");
+    }
+
+    // basic email validation
+    if (!email.includes("@")) {
+      return Alert.alert("Error", "Invalid email address");
     }
 
     try {
       setLoading(true);
 
       const res = await axios.post(
-        "http://172.20.39.19:5000/auth/login",
+        `${API_URL}/auth/login`,
         {
           email,
           password,
+        },
+        {
+          timeout: 10000, // 🔥 prevent hanging
         }
       );
 
-      await AsyncStorage.setItem("token", res.data.token);
+      const token = res.data?.token;
 
-      Alert.alert("Success", "Logged in!");
+      if (!token) {
+        throw new Error("No token received");
+      }
+
+      await AsyncStorage.setItem("token", token);
+
+      Alert.alert("Success", "Logged in successfully!");
 
       router.replace("/"); // go to app
-    } catch (err) {
+    } catch (err: any) {
+      console.log("❌ Login Error:", err?.response?.data || err.message);
+
       if (err.response?.data?.msg) {
         Alert.alert("Error", err.response.data.msg);
+      } else if (err.code === "ECONNABORTED") {
+        Alert.alert("Error", "Request timeout. Try again.");
       } else {
-        Alert.alert("Error", "Login failed");
+        Alert.alert("Error", "Login failed. Check your connection.");
       }
     } finally {
       setLoading(false);
     }
   };
 
+  // ==============================
+  // UI
+  // ==============================
   return (
-    <View style={styles.container}>
-      
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+    >
       {/* TITLE */}
       <Text style={styles.title}>Welcome Back 👋</Text>
 
@@ -64,6 +100,7 @@ export default function Login() {
         style={styles.input}
         autoCapitalize="none"
         keyboardType="email-address"
+        value={email}
         onChangeText={setEmail}
       />
 
@@ -73,12 +110,13 @@ export default function Login() {
         placeholderTextColor="#94a3b8"
         style={styles.input}
         secureTextEntry
+        value={password}
         onChangeText={setPassword}
       />
 
       {/* LOGIN BUTTON */}
       <TouchableOpacity
-        style={styles.button}
+        style={[styles.button, loading && { opacity: 0.6 }]}
         onPress={login}
         disabled={loading}
       >
@@ -89,17 +127,19 @@ export default function Login() {
         )}
       </TouchableOpacity>
 
-      {/* 🔗 REGISTER LINK */}
+      {/* REGISTER LINK */}
       <TouchableOpacity onPress={() => router.replace("/register")}>
         <Text style={styles.link}>
           Don't have an account? Register
         </Text>
       </TouchableOpacity>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
+// ==============================
 // 🎨 STYLES
+// ==============================
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -107,6 +147,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     padding: 20,
   },
+
   title: {
     color: "white",
     fontSize: 28,
@@ -114,6 +155,7 @@ const styles = StyleSheet.create({
     marginBottom: 25,
     textAlign: "center",
   },
+
   input: {
     backgroundColor: "#1e293b",
     color: "white",
@@ -121,18 +163,21 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginBottom: 12,
   },
+
   button: {
     backgroundColor: "#22c55e",
     padding: 16,
     borderRadius: 12,
     marginTop: 10,
   },
+
   buttonText: {
     color: "white",
     textAlign: "center",
     fontWeight: "bold",
     fontSize: 16,
   },
+
   link: {
     color: "#38bdf8",
     textAlign: "center",

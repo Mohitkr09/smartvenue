@@ -1,5 +1,3 @@
-// app/(tabs)/explore.tsx
-
 import {
   View,
   Text,
@@ -12,11 +10,17 @@ import {
 import { useEffect, useState } from "react";
 import axios from "axios";
 import * as Location from "expo-location";
-import { io } from "socket.io-client";
 import MapView, { Marker } from "react-native-maps";
+import { connectSocket } from "../../services/socket";
 
-const socket = io("http://172.20.39.19:5000");
+// ==============================
+// 🧠 CONFIG (PRODUCTION)
+// ==============================
+const API_URL = "https://smartvenue.online";
 
+// ==============================
+// 📍 EVENT
+// ==============================
 const EVENT = {
   lat: 25.4484,
   lng: 78.5685,
@@ -28,25 +32,64 @@ export default function Explore() {
   const [location, setLocation] = useState<any>(null);
   const [refreshing, setRefreshing] = useState(false);
 
+  // ==============================
+  // 🚀 INIT
+  // ==============================
   useEffect(() => {
     getLocation();
     fetchZones();
+
+    const socket = connectSocket();
+
+    socket.on("zoneUpdate", handleRealtime);
+
+    return () => {
+      socket.off("zoneUpdate", handleRealtime);
+    };
   }, []);
 
-  const getLocation = async () => {
-    let { status } =
-      await Location.requestForegroundPermissionsAsync();
-    if (status !== "granted") return;
+  // ==============================
+  // 📡 REAL-TIME
+  // ==============================
+  const handleRealtime = (z: any) => {
+    console.log("🔥 LIVE:", z);
 
-    let loc = await Location.getCurrentPositionAsync({});
-    setLocation(loc.coords);
+    setZones((prev) => {
+      const exists = prev.find((p) => p.name === z.name);
+
+      return exists
+        ? prev.map((p) => (p.name === z.name ? z : p))
+        : [...prev, z];
+    });
   };
 
+  // ==============================
+  // 📍 LOCATION
+  // ==============================
+  const getLocation = async () => {
+    try {
+      const { status } =
+        await Location.requestForegroundPermissionsAsync();
+
+      if (status !== "granted") return;
+
+      const loc = await Location.getCurrentPositionAsync({});
+      setLocation(loc.coords);
+    } catch (err) {
+      console.log("❌ Location error:", err);
+    }
+  };
+
+  // ==============================
+  // 🌐 FETCH
+  // ==============================
   const fetchZones = async () => {
     try {
-      const res = await axios.get("http://172.20.39.19:5000/zones");
+      const res = await axios.get(`${API_URL}/zones`);
       setZones(res.data || []);
-    } catch {}
+    } catch (err) {
+      console.log("❌ API error:", err);
+    }
     setRefreshing(false);
   };
 
@@ -55,33 +98,20 @@ export default function Explore() {
     fetchZones();
   };
 
-  useEffect(() => {
-    socket.on("zoneUpdated", (z) => {
-      setZones((prev) => {
-        const exists = prev.find((p) => p.gate_id === z.gate_id);
-        return exists
-          ? prev.map((p) =>
-              p.gate_id === z.gate_id ? z : p
-            )
-          : [...prev, z];
-      });
-    });
-
-    return () => socket.off("zoneUpdated");
-  }, []);
-
+  // ==============================
   // 📏 DISTANCE
+  // ==============================
   const getDistance = (zone) => {
     if (!location || !zone.lat) return 99999;
 
     const R = 6371;
-    const dLat = (zone.lat - location.latitude) * Math.PI / 180;
-    const dLon = (zone.lng - location.longitude) * Math.PI / 180;
+    const dLat = ((zone.lat - location.latitude) * Math.PI) / 180;
+    const dLon = ((zone.lng - location.longitude) * Math.PI) / 180;
 
     const a =
       Math.sin(dLat / 2) ** 2 +
-      Math.cos(location.latitude * Math.PI / 180) *
-        Math.cos(zone.lat * Math.PI / 180) *
+      Math.cos((location.latitude * Math.PI) / 180) *
+        Math.cos((zone.lat * Math.PI) / 180) *
         Math.sin(dLon / 2) ** 2;
 
     return Math.round(
@@ -91,7 +121,9 @@ export default function Explore() {
 
   const getETA = (d) => Math.max(1, Math.round(d / 80));
 
+  // ==============================
   // 🧠 EVENT CHECK
+  // ==============================
   const isEvent = () => {
     if (!location) return false;
 
@@ -103,19 +135,24 @@ export default function Explore() {
     return dist <= EVENT.radius;
   };
 
+  // ==============================
   // 🏆 BEST GATE
+  // ==============================
   const bestGate =
     zones.length > 0
       ? [...zones]
           .map((z) => ({
             ...z,
             score:
-              (z.futureCrowd ?? z.crowdLevel) * 0.7 +
+              (z.crowdLevel ?? 0) * 0.7 +
               getDistance(z) * 0.3,
           }))
           .sort((a, b) => a.score - b.score)[0]
       : null;
 
+  // ==============================
+  // 🧭 NAVIGATION
+  // ==============================
   const openNavigation = (gate) => {
     if (!location) return;
 
@@ -124,23 +161,23 @@ export default function Explore() {
     );
   };
 
+  // ==============================
+  // UI
+  // ==============================
   return (
     <View style={styles.container}>
       <Text style={styles.header}>🔍 Smart Explore</Text>
 
-      {/* ❌ NO EVENT */}
       {!isEvent() && (
         <View style={styles.emptyBox}>
           <Text style={styles.emptyText}>
-            🚫 You have no suggested gate because you are not at any event
+            🚫 No event detected near you
           </Text>
         </View>
       )}
 
-      {/* ✅ EVENT */}
       {isEvent() && (
         <>
-          {/* 🗺 MAP PREVIEW */}
           <MapView
             style={styles.map}
             showsUserLocation
@@ -155,23 +192,24 @@ export default function Explore() {
               <Marker
                 key={i}
                 coordinate={{ latitude: z.lat, longitude: z.lng }}
-                title={`Gate ${z.gate_id}`}
+                title={z.name}
               />
             ))}
           </MapView>
 
-          {/* 📋 LIST */}
           <FlatList
             data={zones}
             keyExtractor={(item, i) => `gate-${i}`}
             refreshControl={
-              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+              />
             }
             renderItem={({ item }) => {
               const dist = getDistance(item);
               const eta = getETA(dist);
-
-              const isBest = bestGate?.gate_id === item.gate_id;
+              const isBest = bestGate?.name === item.name;
 
               return (
                 <View
@@ -181,7 +219,7 @@ export default function Explore() {
                   ]}
                 >
                   <Text style={styles.title}>
-                    Gate {item.gate_id}
+                    {item.name}
                     {isBest && " ⭐ BEST"}
                   </Text>
 
@@ -190,19 +228,16 @@ export default function Explore() {
                   </Text>
 
                   <Text style={styles.text}>
-                    👥 {item.futureCrowd ?? item.crowdLevel}%
+                    👥 {item.crowdLevel}%
                   </Text>
 
-                  <Text style={styles.status}>
-                    {item.status}
-                  </Text>
-
-                  {/* 🚗 NAVIGATE BUTTON */}
                   <TouchableOpacity
                     style={styles.navBtn}
                     onPress={() => openNavigation(item)}
                   >
-                    <Text style={styles.navText}>Navigate</Text>
+                    <Text style={styles.navText}>
+                      Open Maps
+                    </Text>
                   </TouchableOpacity>
                 </View>
               );
@@ -214,7 +249,9 @@ export default function Explore() {
   );
 }
 
-// 🎨 UI
+// ==============================
+// 🎨 STYLES
+// ==============================
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -266,11 +303,6 @@ const styles = StyleSheet.create({
 
   text: {
     color: "#94a3b8",
-  },
-
-  status: {
-    color: "#22c55e",
-    marginTop: 5,
   },
 
   navBtn: {

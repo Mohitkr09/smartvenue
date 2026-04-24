@@ -13,13 +13,24 @@ import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
 
+// ==============================
+// 🌐 CONFIG (PRODUCTION)
+// ==============================
+const API_URL =
+  __DEV__
+    ? "http://18.214.178.1:5000" // dev
+    : "https://smartvenue.online"; // production
+
 export default function Profile() {
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const router = useRouter();
 
+  // ==============================
+  // 📡 FETCH PROFILE
+  // ==============================
   const fetchProfile = async () => {
     try {
       const token = await AsyncStorage.getItem("token");
@@ -29,20 +40,18 @@ export default function Profile() {
         return;
       }
 
-      const res = await axios.get(
-        "http://172.20.39.19:5000/user/profile",
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
+      const res = await axios.get(`${API_URL}/user/profile`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        timeout: 10000, // 🔥 prevent hanging
+      });
 
-      setUser(res.data.user);
-    } catch (err) {
-      console.log("Profile Error:", err);
+      setUser(res.data?.user || null);
+    } catch (err: any) {
+      console.log("❌ Profile Error:", err?.response?.data || err.message);
 
-      // 🔥 Auto logout if token invalid
+      // 🔥 Token expired / invalid → logout
       await AsyncStorage.removeItem("token");
       router.replace("/login");
     } finally {
@@ -60,11 +69,15 @@ export default function Profile() {
     fetchProfile();
   };
 
+  // ==============================
+  // 🚪 LOGOUT
+  // ==============================
   const logout = async () => {
-    Alert.alert("Logout", "Are you sure?", [
-      { text: "Cancel" },
+    Alert.alert("Logout", "Are you sure you want to logout?", [
+      { text: "Cancel", style: "cancel" },
       {
         text: "Logout",
+        style: "destructive",
         onPress: async () => {
           await AsyncStorage.removeItem("token");
           router.replace("/login");
@@ -73,19 +86,42 @@ export default function Profile() {
     ]);
   };
 
+  // ==============================
+  // ⏳ LOADING
+  // ==============================
   if (loading) {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color="#22c55e" />
+        <Text style={styles.loadingText}>Loading profile...</Text>
       </View>
     );
   }
 
+  // ==============================
+  // ❌ NO USER
+  // ==============================
+  if (!user) {
+    return (
+      <View style={styles.center}>
+        <Text style={{ color: "#ef4444" }}>
+          Failed to load profile
+        </Text>
+      </View>
+    );
+  }
+
+  // ==============================
+  // UI
+  // ==============================
   return (
     <ScrollView
       style={styles.container}
       refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+        />
       }
     >
       {/* HEADER */}
@@ -94,30 +130,41 @@ export default function Profile() {
       {/* AVATAR */}
       <View style={styles.avatar}>
         <Text style={styles.avatarText}>
-          {user?.name?.charAt(0).toUpperCase()}
+          {user?.name?.charAt(0)?.toUpperCase() || "U"}
         </Text>
       </View>
 
-      {/* USER INFO CARD */}
+      {/* USER INFO */}
       <View style={styles.card}>
         <Text style={styles.label}>Full Name</Text>
-        <Text style={styles.value}>{user?.name}</Text>
+        <Text style={styles.value}>
+          {user?.name || "N/A"}
+        </Text>
 
         <Text style={styles.label}>Email Address</Text>
-        <Text style={styles.value}>{user?.email}</Text>
+        <Text style={styles.value}>
+          {user?.email || "N/A"}
+        </Text>
       </View>
 
       {/* ACTIONS */}
       <View style={styles.actions}>
-        <TouchableOpacity style={styles.logoutBtn} onPress={logout}>
-          <Text style={styles.logoutText}>🚪 Logout</Text>
+        <TouchableOpacity
+          style={styles.logoutBtn}
+          onPress={logout}
+        >
+          <Text style={styles.logoutText}>
+            🚪 Logout
+          </Text>
         </TouchableOpacity>
       </View>
     </ScrollView>
   );
 }
 
+// ==============================
 // 🎨 STYLES
+// ==============================
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -192,5 +239,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: "#0f172a",
+  },
+
+  loadingText: {
+    color: "#94a3b8",
+    marginTop: 10,
   },
 });

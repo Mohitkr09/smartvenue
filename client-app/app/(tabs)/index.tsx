@@ -10,16 +10,15 @@ import {
 } from "react-native";
 import { useEffect, useState, useRef } from "react";
 import axios from "axios";
-import { connectSocket, getSocket } from "../../services/socket";
+import { connectSocket } from "../../services/socket";
 import * as Location from "expo-location";
 import * as Speech from "expo-speech";
 import { Linking } from "react-native";
 
 // ==============================
-// 🧠 CONFIG (DOMAIN BASED)
+// 🧠 CONFIG
 // ==============================
 
-// ✅ USE DOMAIN (IMPORTANT)
 const API_URL = "https://smartvenue.online";
 
 // ==============================
@@ -35,6 +34,7 @@ const EVENT = {
 // 🗺️ MAP SAFE IMPORT
 // ==============================
 let MapView: any, Marker: any, Circle: any, AnimatedRegion: any;
+
 if (Platform.OS !== "web") {
   const maps = require("react-native-maps");
   MapView = maps.default;
@@ -67,7 +67,7 @@ export default function HomeScreen() {
   // 🚀 INIT
   // ==============================
   useEffect(() => {
-    const socket = connectSocket(); // ✅ FIXED (no URL override)
+    const socket = connectSocket();
 
     socket.on("zoneUpdate", handleRealtime);
 
@@ -96,7 +96,7 @@ export default function HomeScreen() {
 
       findBestGate(updated);
 
-      // 🔊 VOICE ALERT (ANTI-SPAM)
+      // 🔊 ALERT (ANTI-SPAM)
       if (
         data.crowdLevel >= 85 &&
         lastSpokenRef.current !== data.name
@@ -125,9 +125,12 @@ export default function HomeScreen() {
       const loc = await Location.getCurrentPositionAsync({});
       setLocation(loc.coords);
 
-      markerRef?.setValue(loc.coords);
+      markerRef?.setValue({
+        latitude: loc.coords.latitude,
+        longitude: loc.coords.longitude,
+      });
     } catch (err) {
-      console.log("Location error:", err);
+      console.log("❌ Location error:", err);
     }
   };
 
@@ -199,7 +202,7 @@ export default function HomeScreen() {
 
     setBestGate(best);
 
-    // 🔊 SPEAK ONLY IF CHANGED
+    // 🔊 VOICE ONLY ON CHANGE
     if (best && lastBestGateRef.current !== best.name) {
       lastBestGateRef.current = best.name;
 
