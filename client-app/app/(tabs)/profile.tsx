@@ -13,10 +13,7 @@ import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
 
-// ==============================
-// 🌐 API CONFIG (FINAL)
-// ==============================
-const API_URL = "https://smartvenue.online"; // ✅ ALWAYS HTTPS
+const API_URL = "https://smartvenue.online";
 
 export default function Profile() {
   const [user, setUser] = useState<any>(null);
@@ -25,9 +22,7 @@ export default function Profile() {
 
   const router = useRouter();
 
-  // ==============================
-  // 📡 FETCH PROFILE
-  // ==============================
+  // ================= FETCH PROFILE =================
   const fetchProfile = async () => {
     try {
       const token = await AsyncStorage.getItem("token");
@@ -38,17 +33,13 @@ export default function Profile() {
       }
 
       const res = await axios.get(`${API_URL}/user/profile`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { Authorization: `Bearer ${token}` },
         timeout: 10000,
       });
 
       setUser(res?.data?.user || null);
     } catch (err: any) {
       console.log("❌ Profile Error:", err?.message);
-
-      // logout on error
       await AsyncStorage.removeItem("token");
       router.replace("/login");
     } finally {
@@ -66,11 +57,9 @@ export default function Profile() {
     fetchProfile();
   };
 
-  // ==============================
-  // 🚪 LOGOUT
-  // ==============================
+  // ================= LOGOUT =================
   const logout = async () => {
-    Alert.alert("Logout", "Are you sure?", [
+    Alert.alert("Logout", "Are you sure you want to logout?", [
       { text: "Cancel", style: "cancel" },
       {
         text: "Logout",
@@ -83,9 +72,7 @@ export default function Profile() {
     ]);
   };
 
-  // ==============================
-  // ⏳ LOADING UI
-  // ==============================
+  // ================= LOADING =================
   if (loading) {
     return (
       <View style={styles.center}>
@@ -95,9 +82,7 @@ export default function Profile() {
     );
   }
 
-  // ==============================
-  // ❌ ERROR UI
-  // ==============================
+  // ================= ERROR =================
   if (!user) {
     return (
       <View style={styles.center}>
@@ -108,9 +93,7 @@ export default function Profile() {
     );
   }
 
-  // ==============================
-  // UI
-  // ==============================
+  // ================= UI =================
   return (
     <ScrollView
       style={styles.container}
@@ -119,75 +102,90 @@ export default function Profile() {
       }
     >
       {/* HEADER */}
-      <Text style={styles.title}>👤 Profile</Text>
-
-      {/* AVATAR */}
-      <View style={styles.avatar}>
-        <Text style={styles.avatarText}>
-          {(user?.name?.charAt?.(0) || "U").toUpperCase()}
-        </Text>
+      <View style={styles.header}>
+        <Text style={styles.title}>Profile</Text>
       </View>
 
-      {/* USER INFO */}
+      {/* AVATAR */}
+      <View style={styles.avatarWrapper}>
+        <View style={styles.avatar}>
+          <Text style={styles.avatarText}>
+            {(user?.name?.charAt?.(0) || "U").toUpperCase()}
+          </Text>
+        </View>
+      </View>
+
+      {/* USER CARD */}
       <View style={styles.card}>
         <Text style={styles.label}>Full Name</Text>
-        <Text style={styles.value}>{user?.name || "N/A"}</Text>
+        <Text style={styles.value}>{user?.name}</Text>
 
-        <Text style={styles.label}>Email Address</Text>
-        <Text style={styles.value}>{user?.email || "N/A"}</Text>
+        <Text style={styles.label}>Email</Text>
+        <Text style={styles.value}>{user?.email}</Text>
       </View>
 
       {/* ACTIONS */}
-      <View style={styles.actions}>
-        <TouchableOpacity style={styles.logoutBtn} onPress={logout}>
-          <Text style={styles.logoutText}>🚪 Logout</Text>
-        </TouchableOpacity>
-      </View>
+      <TouchableOpacity style={styles.logoutBtn} onPress={logout}>
+        <Text style={styles.logoutText}>Logout</Text>
+      </TouchableOpacity>
     </ScrollView>
   );
 }
 
-// ==============================
-// 🎨 STYLES
-// ==============================
+// ================= STYLES =================
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#0f172a",
-    padding: 20,
-    paddingTop: 50,
+    backgroundColor: "#020617",
+  },
+
+  header: {
+    paddingTop: 60,
+    paddingBottom: 30,
+    alignItems: "center",
   },
 
   title: {
     color: "white",
-    fontSize: 26,
+    fontSize: 28,
     fontWeight: "bold",
-    textAlign: "center",
+  },
+
+  avatarWrapper: {
+    alignItems: "center",
+    marginTop: -30,
     marginBottom: 20,
   },
 
   avatar: {
-    width: 90,
-    height: 90,
-    borderRadius: 50,
+    width: 110,
+    height: 110,
+    borderRadius: 60,
     backgroundColor: "#22c55e",
-    alignSelf: "center",
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 20,
+
+    // glow effect
+    shadowColor: "#22c55e",
+    shadowOpacity: 0.6,
+    shadowRadius: 20,
+    elevation: 10,
   },
 
   avatarText: {
     color: "white",
-    fontSize: 32,
+    fontSize: 36,
     fontWeight: "bold",
   },
 
   card: {
-    backgroundColor: "#1e293b",
+    marginHorizontal: 20,
     padding: 20,
-    borderRadius: 14,
-    marginBottom: 20,
+    borderRadius: 20,
+
+    backgroundColor: "rgba(255,255,255,0.05)", // glassmorphism
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
   },
 
   label: {
@@ -198,18 +196,15 @@ const styles = StyleSheet.create({
 
   value: {
     color: "white",
-    fontSize: 17,
-    fontWeight: "bold",
-  },
-
-  actions: {
-    marginTop: 10,
+    fontSize: 18,
+    fontWeight: "600",
   },
 
   logoutBtn: {
+    margin: 20,
     backgroundColor: "#ef4444",
     padding: 16,
-    borderRadius: 12,
+    borderRadius: 14,
     alignItems: "center",
   },
 
@@ -223,7 +218,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#0f172a",
+    backgroundColor: "#020617",
   },
 
   loadingText: {

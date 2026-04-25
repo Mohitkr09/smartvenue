@@ -1,16 +1,15 @@
 // server/kafka/producer.js
 
-require("dotenv").config(); // ✅ MUST BE FIRST
+require("dotenv").config();
 
-const { Kafka, logLevel } = require("kafkajs");
+const { Kafka, logLevel, CompressionTypes } = require("kafkajs");
 
 // ==============================
-// 🧠 KAFKA CONFIG
+// 🧠 CONFIG
 // ==============================
 
 const BROKER = process.env.KAFKA_BROKER || "localhost:9092";
 
-console.log("🔥 ENV KAFKA_BROKER =", process.env.KAFKA_BROKER);
 console.log("🔥 USING BROKER =", BROKER);
 
 const kafka = new Kafka({
@@ -25,7 +24,7 @@ const kafka = new Kafka({
 });
 
 // ==============================
-// 🚀 PRODUCER INSTANCE
+// 🚀 PRODUCER
 // ==============================
 
 const producer = kafka.producer({
@@ -39,20 +38,21 @@ const producer = kafka.producer({
 let isConnected = false;
 let isConnecting = false;
 
+// 🔥 QUEUE (prevents data loss)
+let messageQueue = [];
+const MAX_QUEUE_SIZE = 1000;
+
 // ==============================
-// 🔌 CONNECT PRODUCER (SAFE)
+// 🔌 CONNECT
 // ==============================
 
 const connectProducer = async () => {
-  if (isConnected || isConnecting) {
-    return;
-  }
+  if (isConnected || isConnecting) return;
 
   try {
     isConnecting = true;
 
     console.log("🔌 Connecting Kafka Producer...");
-    console.log("📡 Broker:", BROKER);
 
     await producer.connect();
 
@@ -60,21 +60,49 @@ const connectProducer = async () => {
     isConnecting = false;
 
     console.log("✅ Kafka Producer Connected");
+
+    // 🔥 flush queued messages
+    await flushQueue();
+
   } catch (err) {
     isConnecting = false;
 
     console.error("❌ Kafka Connection Error:", err.message);
 
-    // 🔁 Retry connection (non-blocking)
-    setTimeout(() => {
-      console.log("🔄 Retrying Kafka connection...");
-      connectProducer();
-    }, 5000);
+    setTimeout(connectProducer, 5000);
   }
 };
 
 // ==============================
-// 🔁 RETRY WRAPPER
+// 🔁 FLUSH QUEUE
+// ==============================
+
+const flushQueue = async () => {
+  if (!isConnected || messageQueue.length === 0) return;
+
+  console.log(`📤 Flushing ${messageQueue.length} queued events`);
+
+  const batch = [...messageQueue];
+  messageQueue = [];
+
+  try {
+    await producer.send({
+      topic: "zone-updates",
+      messages: batch,
+      compression: CompressionTypes.GZIP,
+      acks: 1,
+    });
+
+  } catch (err) {
+    console.error("❌ Queue flush error:", err.message);
+
+    // 🔁 restore queue
+    messageQueue = [...batch, ...messageQueue];
+  }
+};
+
+// ==============================
+// 🔁 RETRY
 // ==============================
 
 const retrySend = async (fn, retries = 2) => {
@@ -82,7 +110,7 @@ const retrySend = async (fn, retries = 2) => {
     return await fn();
   } catch (err) {
     if (retries > 0) {
-      console.log("🔁 Retrying Kafka send...");
+      console.log("🔁 Retrying send...");
       return retrySend(fn, retries - 1);
     }
     throw err;
@@ -90,20 +118,13 @@ const retrySend = async (fn, retries = 2) => {
 };
 
 // ==============================
-// 📤 SEND EVENT (SAFE)
+// 📤 SEND EVENT
 // ==============================
 
 const sendEvent = async (topic, data) => {
   try {
     if (!data || typeof data !== "object") {
-      console.warn("⚠️ Invalid/empty data skipped");
-      return;
-    }
-
-    // 🚫 Do not block API if Kafka not ready
-    if (!isConnected) {
-      connectProducer(); // async retry
-      console.log("⚠️ Kafka not ready → skipping send");
+      console.warn("⚠️ Invalid data skipped");
       return;
     }
 
@@ -113,17 +134,31 @@ const sendEvent = async (topic, data) => {
       timestamp: Date.now().toString(),
     };
 
+    // 🔥 If not connected → queue instead of skipping
+    if (!isConnected) {
+      if (messageQueue.length < MAX_QUEUE_SIZE) {
+        messageQueue.push(message);
+      } else {
+        console.warn("⚠️ Queue full, dropping event");
+      }
+
+      connectProducer();
+      return;
+    }
+
     await retrySend(() =>
       producer.send({
         topic,
         messages: [message],
-        acks: 1, // ✅ best for single broker
+        compression: CompressionTypes.GZIP,
+        acks: 1,
       })
     );
 
     console.log(`📤 Kafka [${topic}] →`, data);
+
   } catch (err) {
-    console.error("❌ Kafka Send Error:", err.message);
+    console.error("❌ Send Error:", err.message);
   }
 };
 
@@ -133,15 +168,7 @@ const sendEvent = async (topic, data) => {
 
 const sendBatchEvents = async (topic, events = []) => {
   try {
-    if (!Array.isArray(events) || events.length === 0) {
-      return;
-    }
-
-    if (!isConnected) {
-      connectProducer();
-      console.log("⚠️ Kafka not ready → skipping batch");
-      return;
-    }
+    if (!Array.isArray(events) || events.length === 0) return;
 
     const messages = events.map((data) => ({
       key: String(data?.gate_id || "default"),
@@ -149,17 +176,25 @@ const sendBatchEvents = async (topic, events = []) => {
       timestamp: Date.now().toString(),
     }));
 
+    if (!isConnected) {
+      messageQueue.push(...messages);
+      connectProducer();
+      return;
+    }
+
     await retrySend(() =>
       producer.send({
         topic,
         messages,
+        compression: CompressionTypes.GZIP,
         acks: 1,
       })
     );
 
-    console.log(`📦 Batch sent (${events.length}) → ${topic}`);
+    console.log(`📦 Batch sent (${events.length})`);
+
   } catch (err) {
-    console.error("❌ Batch Send Error:", err.message);
+    console.error("❌ Batch Error:", err.message);
   }
 };
 
@@ -172,18 +207,28 @@ const disconnectProducer = async () => {
     if (isConnected) {
       await producer.disconnect();
       isConnected = false;
-      console.log("🔌 Kafka Producer Disconnected");
+      console.log("🔌 Producer Disconnected");
     }
   } catch (err) {
-    console.error("❌ Kafka Disconnect Error:", err.message);
+    console.error("❌ Disconnect Error:", err.message);
   }
 };
 
 // ==============================
-// 🧪 HEALTH CHECK
+// 🧪 HEALTH
 // ==============================
 
 const isProducerHealthy = () => isConnected;
+
+// ==============================
+// 🛑 GRACEFUL SHUTDOWN
+// ==============================
+
+process.on("SIGINT", async () => {
+  console.log("🛑 Shutting down producer...");
+  await disconnectProducer();
+  process.exit(0);
+});
 
 // ==============================
 // 📤 EXPORTS

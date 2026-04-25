@@ -1,4 +1,4 @@
-require("dotenv").config(); // ✅ MUST BE FIRST
+require("dotenv").config();
 
 const express = require("express");
 const http = require("http");
@@ -22,19 +22,20 @@ const Zone = require("./models/Zone");
 const authRoutes = require("./routes/authRoutes");
 const userRoutes = require("./routes/userRoutes");
 
+// =======================
+// 🔔 PUSH TOKENS (TEMP)
+// =======================
+let pushTokens = [];
+
 const app = express();
 
 // =======================
-// 🔧 MIDDLEWARE (SECURE)
+// 🔧 MIDDLEWARE
 // =======================
 app.use(
   cors({
-    origin: [
-      "https://smartvenue.online",
-      "http://localhost:19006",
-    ],
-    methods: ["GET", "POST", "PUT", "DELETE"],
-    credentials: true,
+    origin: "*", // 🔥 allow mobile easily
+    methods: ["GET", "POST"],
   })
 );
 
@@ -48,7 +49,31 @@ app.use("/auth", authRoutes);
 app.use("/user", userRoutes);
 
 // =======================
-// 🌐 HEALTH CHECK
+// 🔔 SAVE TOKEN
+// =======================
+app.post("/save-token", (req, res) => {
+  try {
+    const { token } = req.body;
+
+    if (!token) {
+      return res.status(400).json({ msg: "No token" });
+    }
+
+    if (!pushTokens.includes(token)) {
+      pushTokens.push(token);
+    }
+
+    console.log("📱 Total Tokens:", pushTokens.length);
+
+    res.json({ success: true });
+  } catch (err) {
+    console.log("❌ Token Error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// =======================
+// 🌐 HEALTH
 // =======================
 app.get("/", (req, res) => {
   res.json({
@@ -74,7 +99,7 @@ async function connectDB() {
 }
 
 // =======================
-// 🌱 SEED DATA
+// 🌱 SEED
 // =======================
 async function seedZones() {
   try {
@@ -105,40 +130,38 @@ async function seedZones() {
 }
 
 // =======================
-// 🔄 API ENDPOINTS
+// 🔄 ZONES API
 // =======================
 app.get("/zones", async (req, res) => {
   try {
     const zones = await Zone.find();
     res.json(zones);
   } catch (err) {
-    console.error("❌ Fetch Zones Error:", err.message);
+    console.error("❌ Zones Error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
 // =======================
-// 🔄 SOCKET SERVER
+// 🔌 SOCKET
 // =======================
 const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: "https://smartvenue.online",
-    methods: ["GET", "POST"],
+    origin: "*",
   },
-  path: "/socket.io", // ✅ IMPORTANT
 });
 
 // =======================
-// 🔥 REDIS SETUP
+// 🔥 REDIS (OPTIONAL)
 // =======================
 async function setupRedis() {
   const redisUrl =
     process.env.REDIS_URL || process.env.REDIS_URI;
 
   if (!redisUrl) {
-    console.log("⚠️ No Redis → running without adapter");
+    console.log("⚠️ Redis not configured");
     return;
   }
 
@@ -148,18 +171,14 @@ async function setupRedis() {
     const pubClient = createClient({ url: redisUrl });
     const subClient = pubClient.duplicate();
 
-    pubClient.on("error", (err) =>
-      console.log("❌ Redis Error:", err.message)
-    );
-
     await pubClient.connect();
     await subClient.connect();
 
     io.adapter(createAdapter(pubClient, subClient));
 
-    console.log("🔥 Redis Adapter Connected");
+    console.log("🔥 Redis Connected");
   } catch (err) {
-    console.log("⚠️ Redis failed → fallback:", err.message);
+    console.log("⚠️ Redis failed:", err.message);
   }
 }
 
@@ -167,10 +186,10 @@ async function setupRedis() {
 // 🔌 SOCKET EVENTS
 // =======================
 io.on("connection", (socket) => {
-  console.log("🟢 User connected:", socket.id);
+  console.log("🟢 Connected:", socket.id);
 
   socket.on("disconnect", () => {
-    console.log("🔴 User disconnected:", socket.id);
+    console.log("🔴 Disconnected:", socket.id);
   });
 });
 
@@ -187,30 +206,24 @@ async function startServer() {
     await setupRedis();
 
     server.listen(PORT, "0.0.0.0", () => {
-      console.log(`🚀 Server running on port ${PORT}`);
+      console.log(`🚀 Running on port ${PORT}`);
     });
 
     // ===============================
-    // 🔥 KAFKA SAFE ENABLE
+    // 🔥 KAFKA (FIXED)
     // ===============================
     const BROKER = process.env.KAFKA_BROKER;
 
-    console.log("🔥 ENV KAFKA_BROKER =", BROKER);
+    if (BROKER) {
+      console.log("📡 Kafka ENABLED");
 
-    if (BROKER && !BROKER.includes("localhost")) {
-      console.log("📡 Kafka enabled:", BROKER);
-
-      connectProducer().catch((err) =>
-        console.log("⚠️ Kafka producer failed:", err.message)
-      );
+      connectProducer();
 
       setTimeout(() => {
-        startConsumer(io).catch((err) =>
-          console.log("⚠️ Kafka consumer failed:", err.message)
-        );
+        startConsumer(io);
       }, 2000);
     } else {
-      console.log("⚠️ Kafka disabled (invalid broker)");
+      console.log("⚠️ Kafka not configured");
     }
 
   } catch (err) {
@@ -222,12 +235,19 @@ async function startServer() {
 startServer();
 
 // =======================
-// 🛑 GLOBAL ERROR HANDLING
+// 🛑 ERROR HANDLING
 // =======================
 process.on("uncaughtException", (err) => {
-  console.error("❌ Uncaught Exception:", err.message);
+  console.error("❌ Uncaught:", err.message);
 });
 
 process.on("unhandledRejection", (err) => {
-  console.error("❌ Unhandled Rejection:", err);
+  console.error("❌ Rejection:", err);
 });
+
+// =======================
+// 📤 EXPORT
+// =======================
+module.exports = {
+  pushTokens,
+};

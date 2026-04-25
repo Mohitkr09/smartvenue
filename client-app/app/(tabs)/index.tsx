@@ -4,223 +4,199 @@ import {
   StyleSheet,
   ActivityIndicator,
   TouchableOpacity,
-  ScrollView,
   Platform,
+  Animated,
 } from "react-native";
 import { useEffect, useState, useRef } from "react";
 import axios from "axios";
-import { connectSocket } from "../../services/socket";
 import * as Location from "expo-location";
 import * as Speech from "expo-speech";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Linking } from "react-native";
-
-// ✅ SAFE IMPORT (no dynamic require)
-import MapView, { Marker, Circle } from "react-native-maps";
 
 const API_URL = "https://smartvenue.online";
 
-const EVENT = {
-  lat: 25.4484,
-  lng: 78.5685,
-  radius: 1200,
-};
+let MapView: any, Marker: any;
+
+if (Platform.OS !== "web") {
+  const maps = require("react-native-maps");
+  MapView = maps.default;
+  Marker = maps.Marker;
+}
 
 export default function HomeScreen() {
   const [zones, setZones] = useState<any[]>([]);
   const [location, setLocation] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
   const [bestGate, setBestGate] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [isInEvent, setIsInEvent] = useState(false);
+  const [userName, setUserName] = useState("");
+  const [distanceLeft, setDistanceLeft] = useState(0);
+  const [direction, setDirection] = useState("⬆️");
 
-  const lastSpokenRef = useRef("");
-  const lastBestGateRef = useRef("");
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const lastSpeech = useRef("");
+  const lastDistanceCall = useRef(0);
 
-  // ==============================
-  // INIT
-  // ==============================
+  // ================= INIT =================
   useEffect(() => {
-    let socket: any;
+    fetchUser();
+    startTracking();
+    fetchZones();
 
-    try {
-      socket = connectSocket();
-      socket?.on("zoneUpdate", handleRealtime);
-    } catch (err) {
-      console.log("Socket error:", err);
-    }
-
-    init();
-
-    return () => {
-      try {
-        socket?.off("zoneUpdate", handleRealtime);
-      } catch {}
-    };
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 600,
+      useNativeDriver: true,
+    }).start();
   }, []);
 
-  const init = async () => {
-    await getLocation();
-    await fetchZones();
-  };
-
-  // ==============================
-  // SAFE SPEECH
-  // ==============================
-  const speak = (text: string) => {
+  // ================= USER =================
+  const fetchUser = async () => {
     try {
-      if (Platform.OS !== "web") {
-        Speech.stop();
-        Speech.speak(text);
-      }
-    } catch (e) {
-      console.log("Speech error:", e);
-    }
-  };
+      const token = await AsyncStorage.getItem("token");
+      if (!token) return;
 
-  // ==============================
-  // REALTIME
-  // ==============================
-  const handleRealtime = (data: any) => {
-    try {
-      if (!data) return;
-
-      setZones((prev) => {
-        const updated = prev.some((z) => z.name === data.name)
-          ? prev.map((z) => (z.name === data.name ? data : z))
-          : [...prev, data];
-
-        findBestGate(updated);
-
-        if (
-          data.crowdLevel >= 85 &&
-          lastSpokenRef.current !== data.name
-        ) {
-          speak(`High crowd at ${data.name}`);
-          lastSpokenRef.current = data.name;
-        }
-
-        return updated;
+      const res = await axios.get(`${API_URL}/user/profile`, {
+        headers: { Authorization: `Bearer ${token}` },
       });
-    } catch (err) {
-      console.log("Realtime error:", err);
-    }
+
+      setUserName(res?.data?.user?.name || "");
+    } catch {}
   };
 
-  // ==============================
-  // LOCATION
-  // ==============================
-  const getLocation = async () => {
-    try {
-      const { status } =
-        await Location.requestForegroundPermissionsAsync();
+  // ================= GPS =================
+  const startTracking = async () => {
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== "granted") return;
 
-      if (status !== "granted") {
-        console.log("Permission denied");
-        return;
+    await Location.watchPositionAsync(
+      { accuracy: Location.Accuracy.High, distanceInterval: 5 },
+      (loc) => {
+        const coords = loc.coords;
+        setLocation(coords);
+
+        if (zones.length) {
+          checkEvent(coords);
+          const gate = findBestGate(zones, coords);
+          if (gate) updateNavigation(coords, gate);
+        }
       }
-
-      const loc = await Location.getCurrentPositionAsync({});
-      if (!loc?.coords) return;
-
-      setLocation(loc.coords);
-    } catch (err) {
-      console.log("Location error:", err);
-    }
+    );
   };
 
-  const refreshLocation = async () => {
-    await getLocation();
-    speak("Location updated");
-  };
-
-  // ==============================
-  // FETCH
-  // ==============================
+  // ================= FETCH =================
   const fetchZones = async () => {
     try {
       const res = await axios.get(`${API_URL}/zones`);
-      const data = res?.data || [];
-
-      setZones(data);
-      findBestGate(data);
-    } catch (err: any) {
-      console.log("API error:", err?.message);
-    }
-
+      setZones(res.data || []);
+    } catch {}
     setLoading(false);
   };
 
-  // ==============================
-  // DISTANCE
-  // ==============================
+  // ================= DISTANCE =================
   const getDistance = (lat1, lon1, lat2, lon2) => {
-    try {
-      const R = 6371;
-      const dLat = ((lat2 - lat1) * Math.PI) / 180;
-      const dLon = ((lon2 - lon1) * Math.PI) / 180;
+    const R = 6371e3;
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLon = ((lon2 - lon1) * Math.PI) / 180;
 
-      const a =
-        Math.sin(dLat / 2) ** 2 +
-        Math.cos((lat1 * Math.PI) / 180) *
-          Math.cos((lat2 * Math.PI) / 180) *
-          Math.sin(dLon / 2) ** 2;
+    const a =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos((lat1 * Math.PI) / 180) *
+        Math.cos((lat2 * Math.PI) / 180) *
+        Math.sin(dLon / 2) ** 2;
 
-      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) * 1000;
-    } catch {
-      return 0;
-    }
+    return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   };
 
-  const findBestGate = (data) => {
-    try {
-      if (!location || !data?.length) return;
+  // ================= DIRECTION =================
+  const getDirection = (lat1, lon1, lat2, lon2) => {
+    const angle = Math.atan2(lat2 - lat1, lon2 - lon1);
+    const deg = (angle * 180) / Math.PI;
 
-      let best = null;
-      let score = Infinity;
+    if (deg > -22 && deg <= 22) return "➡️";
+    if (deg > 22 && deg <= 67) return "↗️";
+    if (deg > 67 && deg <= 112) return "⬆️";
+    if (deg > 112 && deg <= 157) return "↖️";
+    if (deg > 157 || deg <= -157) return "⬅️";
+    if (deg > -157 && deg <= -112) return "↙️";
+    if (deg > -112 && deg <= -67) return "⬇️";
+    return "↘️";
+  };
 
-      data.forEach((g) => {
-        if (!g?.lat || !g?.lng) return;
+  // ================= EVENT =================
+  const checkEvent = (coords) => {
+    let inside = false;
 
-        const dist = getDistance(
-          location.latitude,
-          location.longitude,
-          g.lat,
-          g.lng
-        );
-
-        const s = dist + (g.crowdLevel || 0) * 10;
-
-        if (s < score) {
-          score = s;
-          best = { ...g, distance: dist };
-        }
-      });
-
-      setBestGate(best);
-
-      if (best && lastBestGateRef.current !== best.name) {
-        lastBestGateRef.current = best.name;
-        speak(`Best gate is ${best.name}`);
+    zones.forEach((z) => {
+      if (
+        getDistance(coords.latitude, coords.longitude, z.lat, z.lng) < 500
+      ) {
+        inside = true;
       }
-    } catch (err) {
-      console.log("Best gate error:", err);
+    });
+
+    setIsInEvent(inside);
+  };
+
+  // ================= BEST GATE =================
+  const findBestGate = (data, loc) => {
+    let best = null;
+    let score = Infinity;
+
+    data.forEach((g) => {
+      const dist = getDistance(loc.latitude, loc.longitude, g.lat, g.lng);
+      const s = dist + g.crowdLevel * 12;
+
+      if (s < score) {
+        score = s;
+        best = { ...g, distance: dist };
+      }
+    });
+
+    setBestGate(best);
+
+    if (best && lastSpeech.current !== best.name) {
+      Speech.speak(`Best gate is ${best.name}`);
+      lastSpeech.current = best.name;
+    }
+
+    return best;
+  };
+
+  // ================= NAVIGATION =================
+  const updateNavigation = (user, gate) => {
+    const dist = getDistance(
+      user.latitude,
+      user.longitude,
+      gate.lat,
+      gate.lng
+    );
+
+    setDistanceLeft(dist);
+
+    const dir = getDirection(
+      user.latitude,
+      user.longitude,
+      gate.lat,
+      gate.lng
+    );
+    setDirection(dir);
+
+    // 🔊 Distance voice (every ~50m)
+    if (Math.abs(dist - lastDistanceCall.current) > 50) {
+      Speech.speak(`${Math.round(dist)} meters remaining`);
+      lastDistanceCall.current = dist;
+    }
+
+    // 🔊 Arrival
+    if (dist < 30) {
+      Speech.speak("You have reached your gate");
     }
   };
 
-  const navigate = (gate) => {
-    try {
-      if (!gate?.lat || !gate?.lng) return;
-
-      Linking.openURL(
-        `https://www.google.com/maps/dir/?api=1&destination=${gate.lat},${gate.lng}`
-      );
-    } catch (err) {
-      console.log("Navigation error:", err);
-    }
-  };
-
-  // ==============================
-  // UI STATES
-  // ==============================
-  if (loading) {
+  // ================= LOADING =================
+  if (loading || !location) {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color="#22c55e" />
@@ -228,27 +204,23 @@ export default function HomeScreen() {
     );
   }
 
-  if (
-    !location ||
-    !location.latitude ||
-    !location.longitude
-  ) {
+  // ================= HOME =================
+  if (!isInEvent) {
     return (
       <View style={styles.center}>
-        <Text style={{ color: "white" }}>
-          Getting location...
+        <Text style={styles.homeTitle}>
+          Hi, {userName || "User"} 👋
         </Text>
+        <Text style={styles.homeSub}>🏠 You are at home</Text>
       </View>
     );
   }
 
-  // ==============================
-  // UI
-  // ==============================
+  // ================= EVENT =================
   return (
-    <View style={{ flex: 1 }}>
+    <Animated.View style={[styles.container, { opacity: fadeAnim }]}>
       <MapView
-        style={{ flex: 1 }}
+        style={styles.map}
         showsUserLocation
         region={{
           latitude: location.latitude,
@@ -257,99 +229,112 @@ export default function HomeScreen() {
           longitudeDelta: 0.01,
         }}
       >
-        <Circle
-          center={{ latitude: EVENT.lat, longitude: EVENT.lng }}
-          radius={EVENT.radius}
-          strokeColor="#22c55e"
-        />
-
-        {/* User Marker */}
-        <Marker
-          coordinate={{
-            latitude: location.latitude,
-            longitude: location.longitude,
-          }}
-          title="You"
-        />
-
-        {/* Gates */}
         {zones.map((z, i) => (
           <Marker
             key={i}
             coordinate={{ latitude: z.lat, longitude: z.lng }}
-            title={z.name}
           />
         ))}
       </MapView>
 
-      <ScrollView style={styles.panel}>
-        <TouchableOpacity style={styles.refresh} onPress={refreshLocation}>
-          <Text style={{ color: "white" }}>
-            Refresh Location
-          </Text>
-        </TouchableOpacity>
-
-        {!bestGate && (
-          <Text style={styles.noEvent}>
-            No event detected
-          </Text>
-        )}
+      {/* NAV CARD */}
+      <View style={styles.card}>
+        <Text style={styles.arrow}>{direction}</Text>
 
         {bestGate && (
-          <View style={styles.best}>
-            <Text style={styles.bestText}>
-              ⭐ {bestGate.name}
+          <>
+            <Text style={styles.gate}>{bestGate.name}</Text>
+
+            <Text style={styles.info}>
+              📍 Distance: {Math.round(distanceLeft)} m
+            </Text>
+
+            <Text style={styles.info}>
+              ⏱ Time: {Math.max(1, Math.round(distanceLeft / 80))} min
+            </Text>
+
+            <Text style={styles.info}>
+              👥 Crowd: {bestGate.crowdLevel}%
             </Text>
 
             <TouchableOpacity
-              onPress={() => navigate(bestGate)}
-              style={{ marginTop: 10 }}
+              style={styles.btn}
+              onPress={() =>
+                Linking.openURL(
+                  `https://www.google.com/maps/dir/?api=1&destination=${bestGate.lat},${bestGate.lng}`
+                )
+              }
             >
-              <Text style={{ color: "white" }}>
-                Open in Maps
-              </Text>
+              <Text style={styles.btnText}>Start Navigation</Text>
             </TouchableOpacity>
-          </View>
+          </>
         )}
-      </ScrollView>
-    </View>
+      </View>
+    </Animated.View>
   );
 }
 
-// ==============================
-// STYLES
-// ==============================
+// ================= STYLES =================
 const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: "#020617" },
+  map: { flex: 1 },
+
+  card: {
+    position: "absolute",
+    bottom: 20,
+    left: 15,
+    right: 15,
+    backgroundColor: "rgba(255,255,255,0.05)",
+    padding: 20,
+    borderRadius: 20,
+  },
+
+  arrow: {
+    fontSize: 40,
+    textAlign: "center",
+  },
+
+  gate: {
+    color: "white",
+    fontSize: 24,
+    fontWeight: "bold",
+    textAlign: "center",
+  },
+
+  info: {
+    color: "#cbd5f5",
+    textAlign: "center",
+    marginTop: 5,
+  },
+
+  btn: {
+    backgroundColor: "#22c55e",
+    padding: 14,
+    borderRadius: 12,
+    marginTop: 10,
+    alignItems: "center",
+  },
+
+  btnText: {
+    color: "white",
+    fontWeight: "bold",
+  },
+
   center: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-  },
-  panel: {
-    position: "absolute",
-    bottom: 0,
-    width: "100%",
-    maxHeight: 320,
     backgroundColor: "#020617",
   },
-  refresh: {
-    padding: 10,
-    backgroundColor: "#334155",
-    alignItems: "center",
-  },
-  best: {
-    backgroundColor: "#22c55e",
-    padding: 10,
-    margin: 10,
-    borderRadius: 10,
-  },
-  bestText: {
+
+  homeTitle: {
     color: "white",
+    fontSize: 26,
     fontWeight: "bold",
   },
-  noEvent: {
+
+  homeSub: {
     color: "#94a3b8",
-    textAlign: "center",
     marginTop: 10,
   },
 });
