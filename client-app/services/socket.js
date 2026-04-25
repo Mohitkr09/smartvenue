@@ -19,7 +19,6 @@ export const connectSocket = () => {
       console.log("⚠️ Socket already connected");
       return socket;
     }
-
     // cleanup old socket
     if (socket) {
       socket.removeAllListeners();
@@ -42,9 +41,6 @@ export const connectSocket = () => {
       forceNew: true,
     });
 
-    // ==============================
-    // ✅ CONNECTION EVENTS
-    // ==============================
 
     socket.on("connect", () => {
       console.log("🟢 Connected:", socket.id);

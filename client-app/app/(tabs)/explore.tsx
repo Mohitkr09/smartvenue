@@ -6,6 +6,8 @@ import {
   TouchableOpacity,
   RefreshControl,
   Linking,
+  ActivityIndicator,
+  Platform,
 } from "react-native";
 import { useEffect, useState } from "react";
 import axios from "axios";
@@ -13,14 +15,8 @@ import * as Location from "expo-location";
 import MapView, { Marker } from "react-native-maps";
 import { connectSocket } from "../../services/socket";
 
-// ==============================
-// 🧠 CONFIG (PRODUCTION)
-// ==============================
 const API_URL = "https://smartvenue.online";
 
-// ==============================
-// 📍 EVENT
-// ==============================
 const EVENT = {
   lat: 25.4484,
   lng: 78.5685,
@@ -31,64 +27,86 @@ export default function Explore() {
   const [zones, setZones] = useState<any[]>([]);
   const [location, setLocation] = useState<any>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   // ==============================
-  // 🚀 INIT
+  // INIT
   // ==============================
   useEffect(() => {
-    getLocation();
-    fetchZones();
+    let socket: any;
 
-    const socket = connectSocket();
+    init();
 
-    socket.on("zoneUpdate", handleRealtime);
+    try {
+      socket = connectSocket();
+      socket?.on("zoneUpdate", handleRealtime);
+    } catch (e) {
+      console.log("Socket error:", e);
+    }
 
     return () => {
-      socket.off("zoneUpdate", handleRealtime);
+      try {
+        socket?.off("zoneUpdate", handleRealtime);
+      } catch {}
     };
   }, []);
 
-  // ==============================
-  // 📡 REAL-TIME
-  // ==============================
-  const handleRealtime = (z: any) => {
-    console.log("🔥 LIVE:", z);
-
-    setZones((prev) => {
-      const exists = prev.find((p) => p.name === z.name);
-
-      return exists
-        ? prev.map((p) => (p.name === z.name ? z : p))
-        : [...prev, z];
-    });
+  const init = async () => {
+    await getLocation();
+    await fetchZones();
+    setLoading(false);
   };
 
   // ==============================
-  // 📍 LOCATION
+  // REALTIME
+  // ==============================
+  const handleRealtime = (z: any) => {
+    try {
+      if (!z) return;
+
+      setZones((prev) => {
+        const exists = prev.find((p) => p.name === z.name);
+
+        return exists
+          ? prev.map((p) => (p.name === z.name ? z : p))
+          : [...prev, z];
+      });
+    } catch (e) {
+      console.log("Realtime error:", e);
+    }
+  };
+
+  // ==============================
+  // LOCATION
   // ==============================
   const getLocation = async () => {
     try {
       const { status } =
         await Location.requestForegroundPermissionsAsync();
 
-      if (status !== "granted") return;
+      if (status !== "granted") {
+        console.log("Location permission denied");
+        return;
+      }
 
       const loc = await Location.getCurrentPositionAsync({});
+      if (!loc?.coords) return;
+
       setLocation(loc.coords);
     } catch (err) {
-      console.log("❌ Location error:", err);
+      console.log("Location error:", err);
     }
   };
 
   // ==============================
-  // 🌐 FETCH
+  // FETCH
   // ==============================
   const fetchZones = async () => {
     try {
       const res = await axios.get(`${API_URL}/zones`);
-      setZones(res.data || []);
+      setZones(res?.data || []);
     } catch (err) {
-      console.log("❌ API error:", err);
+      console.log("API error:", err);
     }
     setRefreshing(false);
   };
@@ -99,47 +117,64 @@ export default function Explore() {
   };
 
   // ==============================
-  // 📏 DISTANCE
+  // DISTANCE
   // ==============================
   const getDistance = (zone) => {
-    if (!location || !zone.lat) return 99999;
+    try {
+      if (
+        !location ||
+        !zone?.lat ||
+        !zone?.lng
+      )
+        return 99999;
 
-    const R = 6371;
-    const dLat = ((zone.lat - location.latitude) * Math.PI) / 180;
-    const dLon = ((zone.lng - location.longitude) * Math.PI) / 180;
+      const R = 6371;
+      const dLat =
+        ((zone.lat - location.latitude) * Math.PI) / 180;
+      const dLon =
+        ((zone.lng - location.longitude) * Math.PI) / 180;
 
-    const a =
-      Math.sin(dLat / 2) ** 2 +
-      Math.cos((location.latitude * Math.PI) / 180) *
-        Math.cos((zone.lat * Math.PI) / 180) *
-        Math.sin(dLon / 2) ** 2;
+      const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos((location.latitude * Math.PI) / 180) *
+          Math.cos((zone.lat * Math.PI) / 180) *
+          Math.sin(dLon / 2) ** 2;
 
-    return Math.round(
-      R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) * 1000
-    );
+      return Math.round(
+        R * 2 *
+          Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) *
+          1000
+      );
+    } catch {
+      return 99999;
+    }
   };
 
   const getETA = (d) => Math.max(1, Math.round(d / 80));
 
   // ==============================
-  // 🧠 EVENT CHECK
+  // EVENT CHECK
   // ==============================
   const isEvent = () => {
-    if (!location) return false;
+    try {
+      if (!location) return false;
 
-    const dist = getDistance({
-      lat: EVENT.lat,
-      lng: EVENT.lng,
-    });
+      const dist = getDistance({
+        lat: EVENT.lat,
+        lng: EVENT.lng,
+      });
 
-    return dist <= EVENT.radius;
+      return dist <= EVENT.radius;
+    } catch {
+      return false;
+    }
   };
 
   // ==============================
-  // 🏆 BEST GATE
+  // BEST GATE
   // ==============================
   const bestGate =
-    zones.length > 0
+    zones?.length > 0
       ? [...zones]
           .map((z) => ({
             ...z,
@@ -151,15 +186,40 @@ export default function Explore() {
       : null;
 
   // ==============================
-  // 🧭 NAVIGATION
+  // NAVIGATION
   // ==============================
   const openNavigation = (gate) => {
-    if (!location) return;
+    try {
+      if (!location || !gate?.lat || !gate?.lng) return;
 
-    Linking.openURL(
-      `https://www.google.com/maps/dir/?api=1&origin=${location.latitude},${location.longitude}&destination=${gate.lat},${gate.lng}`
-    );
+      Linking.openURL(
+        `https://www.google.com/maps/dir/?api=1&origin=${location.latitude},${location.longitude}&destination=${gate.lat},${gate.lng}`
+      );
+    } catch (err) {
+      console.log("Navigation error:", err);
+    }
   };
+
+  // ==============================
+  // LOADING
+  // ==============================
+  if (loading) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator size="large" color="#22c55e" />
+      </View>
+    );
+  }
+
+  if (!location) {
+    return (
+      <View style={styles.center}>
+        <Text style={{ color: "white" }}>
+          Getting location...
+        </Text>
+      </View>
+    );
+  }
 
   // ==============================
   // UI
@@ -182,8 +242,8 @@ export default function Explore() {
             style={styles.map}
             showsUserLocation
             region={{
-              latitude: location?.latitude || EVENT.lat,
-              longitude: location?.longitude || EVENT.lng,
+              latitude: location.latitude,
+              longitude: location.longitude,
               latitudeDelta: 0.01,
               longitudeDelta: 0.01,
             }}
@@ -191,7 +251,10 @@ export default function Explore() {
             {zones.map((z, i) => (
               <Marker
                 key={i}
-                coordinate={{ latitude: z.lat, longitude: z.lng }}
+                coordinate={{
+                  latitude: z.lat,
+                  longitude: z.lng,
+                }}
                 title={z.name}
               />
             ))}
@@ -209,7 +272,8 @@ export default function Explore() {
             renderItem={({ item }) => {
               const dist = getDistance(item);
               const eta = getETA(dist);
-              const isBest = bestGate?.name === item.name;
+              const isBest =
+                bestGate?.name === item.name;
 
               return (
                 <View
@@ -228,7 +292,7 @@ export default function Explore() {
                   </Text>
 
                   <Text style={styles.text}>
-                    👥 {item.crowdLevel}%
+                    👥 {item.crowdLevel ?? 0}%
                   </Text>
 
                   <TouchableOpacity
@@ -250,7 +314,7 @@ export default function Explore() {
 }
 
 // ==============================
-// 🎨 STYLES
+// STYLES
 // ==============================
 const styles = StyleSheet.create({
   container: {
@@ -258,53 +322,49 @@ const styles = StyleSheet.create({
     backgroundColor: "#020617",
     paddingTop: 40,
   },
-
+  center: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
   header: {
     color: "white",
     fontSize: 24,
     textAlign: "center",
     fontWeight: "bold",
   },
-
   map: {
     height: 200,
     margin: 10,
     borderRadius: 10,
   },
-
   emptyBox: {
     marginTop: 100,
     alignItems: "center",
   },
-
   emptyText: {
     color: "#ef4444",
     fontSize: 16,
     textAlign: "center",
   },
-
   card: {
     backgroundColor: "#1e293b",
     margin: 10,
     padding: 15,
     borderRadius: 12,
   },
-
   bestCard: {
     borderColor: "#22c55e",
     borderWidth: 2,
   },
-
   title: {
     color: "white",
     fontSize: 18,
     fontWeight: "bold",
   },
-
   text: {
     color: "#94a3b8",
   },
-
   navBtn: {
     marginTop: 10,
     backgroundColor: "#3b82f6",
@@ -312,7 +372,6 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: "center",
   },
-
   navText: {
     color: "white",
     fontWeight: "bold",
