@@ -3,19 +3,40 @@
 require("dotenv").config();
 
 const { Kafka, logLevel, CompressionTypes } = require("kafkajs");
+const fs = require("fs");
 
 // ==============================
 // 🧠 CONFIG
 // ==============================
 
-const BROKER = process.env.KAFKA_BROKER || "localhost:9092";
+const BROKER = process.env.KAFKA_BROKER;
+const CLIENT_ID = "smart-venue";
 
-console.log("🔥 USING BROKER =", BROKER);
+// OPTIONAL (for cloud Kafka like Confluent/MSK)
+const USE_SSL = process.env.KAFKA_SSL === "true";
+const SASL_USERNAME = process.env.KAFKA_USERNAME;
+const SASL_PASSWORD = process.env.KAFKA_PASSWORD;
+
+console.log("🔥 Kafka Broker:", BROKER);
+
+// ==============================
+// 🧠 INIT KAFKA
+// ==============================
 
 const kafka = new Kafka({
-  clientId: "smart-venue",
+  clientId: CLIENT_ID,
   brokers: [BROKER],
   logLevel: logLevel.NOTHING,
+
+  ssl: USE_SSL,
+
+  sasl: SASL_USERNAME
+    ? {
+        mechanism: "plain",
+        username: SASL_USERNAME,
+        password: SASL_PASSWORD,
+      }
+    : undefined,
 
   retry: {
     initialRetryTime: 300,
@@ -38,9 +59,41 @@ const producer = kafka.producer({
 let isConnected = false;
 let isConnecting = false;
 
-// 🔥 QUEUE (prevents data loss)
+// ==============================
+// 📦 QUEUE (PERSISTENT)
+// ==============================
+
 let messageQueue = [];
-const MAX_QUEUE_SIZE = 1000;
+const MAX_QUEUE_SIZE = 2000;
+const QUEUE_FILE = "./kafka-queue.json";
+
+// ==============================
+// 💾 LOAD QUEUE (RECOVERY)
+// ==============================
+
+const loadQueue = () => {
+  try {
+    if (fs.existsSync(QUEUE_FILE)) {
+      const data = fs.readFileSync(QUEUE_FILE);
+      messageQueue = JSON.parse(data);
+      console.log(`📦 Loaded ${messageQueue.length} queued messages`);
+    }
+  } catch (err) {
+    console.log("❌ Queue load error:", err.message);
+  }
+};
+
+// ==============================
+// 💾 SAVE QUEUE
+// ==============================
+
+const saveQueue = () => {
+  try {
+    fs.writeFileSync(QUEUE_FILE, JSON.stringify(messageQueue));
+  } catch (err) {
+    console.log("❌ Queue save error:", err.message);
+  }
+};
 
 // ==============================
 // 🔌 CONNECT
@@ -61,20 +114,19 @@ const connectProducer = async () => {
 
     console.log("✅ Kafka Producer Connected");
 
-    // 🔥 flush queued messages
     await flushQueue();
 
   } catch (err) {
     isConnecting = false;
 
-    console.error("❌ Kafka Connection Error:", err.message);
+    console.error("❌ Kafka Connect Error:", err.message);
 
     setTimeout(connectProducer, 5000);
   }
 };
 
 // ==============================
-// 🔁 FLUSH QUEUE
+// 🔁 FLUSH QUEUE (BATCH)
 // ==============================
 
 const flushQueue = async () => {
@@ -82,8 +134,7 @@ const flushQueue = async () => {
 
   console.log(`📤 Flushing ${messageQueue.length} queued events`);
 
-  const batch = [...messageQueue];
-  messageQueue = [];
+  const batch = messageQueue.splice(0, 100); // send 100 at a time
 
   try {
     await producer.send({
@@ -93,19 +144,25 @@ const flushQueue = async () => {
       acks: 1,
     });
 
-  } catch (err) {
-    console.error("❌ Queue flush error:", err.message);
+    saveQueue();
 
-    // 🔁 restore queue
+    if (messageQueue.length > 0) {
+      setTimeout(flushQueue, 1000);
+    }
+
+  } catch (err) {
+    console.error("❌ Flush Error:", err.message);
+
     messageQueue = [...batch, ...messageQueue];
+    saveQueue();
   }
 };
 
 // ==============================
-// 🔁 RETRY
+// 🔁 RETRY SEND
 // ==============================
 
-const retrySend = async (fn, retries = 2) => {
+const retrySend = async (fn, retries = 3) => {
   try {
     return await fn();
   } catch (err) {
@@ -134,10 +191,11 @@ const sendEvent = async (topic, data) => {
       timestamp: Date.now().toString(),
     };
 
-    // 🔥 If not connected → queue instead of skipping
+    // 🔥 If not connected → queue
     if (!isConnected) {
       if (messageQueue.length < MAX_QUEUE_SIZE) {
         messageQueue.push(message);
+        saveQueue();
       } else {
         console.warn("⚠️ Queue full, dropping event");
       }
@@ -178,6 +236,7 @@ const sendBatchEvents = async (topic, events = []) => {
 
     if (!isConnected) {
       messageQueue.push(...messages);
+      saveQueue();
       connectProducer();
       return;
     }
@@ -221,14 +280,22 @@ const disconnectProducer = async () => {
 const isProducerHealthy = () => isConnected;
 
 // ==============================
-// 🛑 GRACEFUL SHUTDOWN
+// 🛑 SHUTDOWN
 // ==============================
 
 process.on("SIGINT", async () => {
   console.log("🛑 Shutting down producer...");
+  saveQueue();
   await disconnectProducer();
   process.exit(0);
 });
+
+// ==============================
+// 🚀 INIT
+// ==============================
+
+loadQueue();
+connectProducer();
 
 // ==============================
 // 📤 EXPORTS

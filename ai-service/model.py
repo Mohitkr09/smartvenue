@@ -1,186 +1,152 @@
-# model.py
+# ai-service/model.py
 
 import numpy as np
 import joblib
 import os
 
-# Optional TensorFlow
-try:
-    import tensorflow as tf
-    TF_AVAILABLE = True
-except:
-    TF_AVAILABLE = False
-
 # ==============================
 # ⚙️ CONFIG
 # ==============================
 
-MODEL_TYPE = "ml"   # "ml" or "tf"
-MODEL_FILE = "crowd_model.pkl"
+MODEL_PATH = "models/crowd_model.pkl"
+
+CROWD_WEIGHT = 0.7
+DIST_WEIGHT = 0.3
 
 # ==============================
-# 📊 TRAIN ML MODEL (Fallback)
+# 📂 LOAD TRAINED MODEL
 # ==============================
 
-def train_ml_model():
-    X = np.array([
-        [10, 2],
-        [20, 5],
-        [30, 7],
-        [40, 10],
-        [50, 12],
-        [60, 15],
-        [70, 18],
-        [80, 20],
-        [90, 25],
-    ])
-
-    y = np.array([12, 25, 35, 50, 60, 75, 85, 95, 100])
-
-    from sklearn.linear_model import LinearRegression
-    model = LinearRegression()
-    model.fit(X, y)
-
-    joblib.dump(model, MODEL_FILE)
-    return model
-
-
-# ==============================
-# 📂 LOAD ML MODEL
-# ==============================
-
-def load_ml_model():
-    if os.path.exists(MODEL_FILE):
-        print("✅ ML Model Loaded")
-        return joblib.load(MODEL_FILE)
+def load_model():
+    if os.path.exists(MODEL_PATH):
+        print("✅ Real ML Model Loaded")
+        return joblib.load(MODEL_PATH)
     else:
-        print("⚠️ Training ML Model...")
-        return train_ml_model()
-
-
-# ==============================
-# 🧠 TENSORFLOW MODEL
-# ==============================
-
-def build_tf_model():
-    if not TF_AVAILABLE:
+        print("❌ No trained model found. Run train_from_db.py")
         return None
 
-    model = tf.keras.Sequential([
-        tf.keras.layers.Dense(8, activation='relu', input_shape=(2,)),
-        tf.keras.layers.Dense(4, activation='relu'),
-        tf.keras.layers.Dense(1)
-    ])
-
-    model.compile(optimizer='adam', loss='mse')
-
-    # Dummy training
-    X = np.array([
-        [10,2],[20,5],[30,7],[40,10],[50,12],
-        [60,15],[70,18],[80,20],[90,25]
-    ])
-
-    y = np.array([12,25,35,50,60,75,85,95,100])
-
-    model.fit(X, y, epochs=100, verbose=0)
-
-    print("✅ TensorFlow Model Ready")
-
-    return model
-
+model = load_model()
 
 # ==============================
-# 🚀 INITIALIZE MODELS
+# 🔮 PREDICT FUTURE CROWD (REAL)
 # ==============================
 
-ml_model = load_ml_model()
-tf_model = build_tf_model() if TF_AVAILABLE else None
-
-
-# ==============================
-# 🔥 PREDICTION ENGINE
-# ==============================
-
-def predict_crowd(crowd, wait):
-
+def predict_future_crowd(crowd, wait, hour, day):
     try:
         crowd = int(crowd)
         wait = int(wait)
+        hour = int(hour)
+        day = int(day)
     except:
-        crowd = 0
-        wait = 0
+        crowd, wait, hour, day = 0, 0, 0, 0
 
-    input_data = np.array([[crowd, wait]])
+    if model is None:
+        return crowd  # fallback
 
-    # 🔁 Choose model dynamically
-    if MODEL_TYPE == "tf" and tf_model is not None:
-        future = tf_model.predict(input_data)[0][0]
-    else:
-        future = ml_model.predict(input_data)[0]
+    input_data = np.array([[crowd, wait, hour, day]])
 
-    # 🧹 Clean output
-    future = int(max(0, min(100, future)))
+    future = model.predict(input_data)[0]
 
-    # ==============================
-    # 🎯 SMART DECISION LOGIC
-    # ==============================
-
-    if future >= 85:
-        return {
-            "status": "OVERCROWDED",
-            "futureCrowd": future,
-            "message": "🚨 Will be overcrowded soon",
-            "suggestion": "Avoid this gate"
-        }
-
-    elif future >= 70:
-        return {
-            "status": "HIGH",
-            "futureCrowd": future,
-            "message": "⚠️ High crowd expected",
-            "suggestion": "Try nearby gate"
-        }
-
-    elif future >= 50:
-        return {
-            "status": "INCREASING",
-            "futureCrowd": future,
-            "message": "📈 Crowd increasing",
-            "suggestion": "Monitor before entering"
-        }
-
-    elif future >= 30:
-        return {
-            "status": "MODERATE",
-            "futureCrowd": future,
-            "message": "🙂 Moderate crowd",
-            "suggestion": "Safe to proceed"
-        }
-
-    else:
-        return {
-            "status": "SMOOTH",
-            "futureCrowd": future,
-            "message": "✅ Smooth entry",
-            "suggestion": "Best gate"
-        }
-
+    return int(max(0, min(100, future)))
 
 # ==============================
-# 🔁 SWITCH MODEL (API USE)
+# 🎯 STATUS LOGIC
+# ==============================
+
+def get_status(future):
+    if future >= 85:
+        return "OVERCROWDED", "🚨 Avoid this gate"
+    elif future >= 70:
+        return "HIGH", "⚠️ Try another gate"
+    elif future >= 50:
+        return "INCREASING", "📈 Crowd increasing"
+    elif future >= 30:
+        return "MODERATE", "🙂 Safe to proceed"
+    else:
+        return "SMOOTH", "✅ Best gate"
+
+# ==============================
+# 📊 NORMALIZATION
+# ==============================
+
+def normalize(value, max_val):
+    return value / max_val if max_val else 0
+
+# ==============================
+# 🚀 MAIN AI ENGINE (UPDATED)
+# ==============================
+
+def analyze_zones(zones):
+    if not zones:
+        return {
+            "bestGate": None,
+            "zones": [],
+            "alerts": []
+        }
+
+    max_crowd = max([z.get("crowdLevel", 0) for z in zones] or [1])
+    max_dist = max([z.get("distance", 0) for z in zones] or [1])
+
+    results = []
+    alerts = []
+
+    for z in zones:
+        gate_id = z.get("id")
+        crowd = z.get("crowdLevel", 0)
+        distance = z.get("distance", 0)
+        wait = z.get("waitTime", 0)
+
+        # 🔥 NEW FEATURES
+        hour = z.get("hour", 0)
+        day = z.get("day", 0)
+
+        # 🔮 REAL AI prediction
+        future = predict_future_crowd(crowd, wait, hour, day)
+
+        # 🧠 normalize
+        nc = normalize(crowd, max_crowd)
+        nd = normalize(distance, max_dist)
+
+        # 🎯 smart scoring
+        score = (1 - nc) * CROWD_WEIGHT + (1 - nd) * DIST_WEIGHT
+
+        status, suggestion = get_status(future)
+
+        result = {
+            "id": gate_id,
+            "score": round(score, 3),
+            "crowdLevel": crowd,
+            "distance": distance,
+            "futureCrowd": future,
+            "status": status,
+            "suggestion": suggestion
+        }
+
+        results.append(result)
+
+        # 🚨 alerts
+        if future >= 85:
+            alerts.append({
+                "id": gate_id,
+                "type": "HIGH_CONGESTION"
+            })
+
+    # 🔥 sort best gate
+    results.sort(key=lambda x: x["score"], reverse=True)
+
+    best_gate = results[0]["id"]
+
+    return {
+        "bestGate": best_gate,
+        "zones": results,
+        "alerts": alerts
+    }
+
+# ==============================
+# 🔁 MODEL SWITCH (OPTIONAL)
 # ==============================
 
 def switch_model(model_type):
-    global MODEL_TYPE
-
-    if model_type not in ["ml", "tf"]:
-        return {"error": "Invalid model type"}
-
-    if model_type == "tf" and not TF_AVAILABLE:
-        return {"error": "TensorFlow not installed"}
-
-    MODEL_TYPE = model_type
-
     return {
-        "message": f"Model switched to {MODEL_TYPE}"
+        "message": "Only ML model supported (real data)"
     }

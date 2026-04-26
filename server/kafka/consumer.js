@@ -1,28 +1,77 @@
-// server/kafka/consumer.js
-
-require("dotenv").config(); // ✅ MUST BE FIRST
+require("dotenv").config();
 
 const { Kafka, logLevel } = require("kafkajs");
+const axios = require("axios");
+const Redis = require("ioredis");
+const mongoose = require("mongoose");
 
 // ==============================
-// 🧠 KAFKA CONFIG
+// 🧠 CONFIG
 // ==============================
 
 const BROKER = process.env.KAFKA_BROKER || "localhost:9092";
+const AI_URL = process.env.AI_URL || "http://localhost:7000/predict-zones";
+const REDIS_URL = process.env.REDIS_URL;
+const MONGO_URI = process.env.MONGO_URI;
 
-console.log("🔥 ENV KAFKA_BROKER =", process.env.KAFKA_BROKER);
-console.log("🔥 USING BROKER =", BROKER);
+console.log("🔥 Kafka:", BROKER);
+console.log("🤖 AI:", AI_URL);
+
+// ==============================
+// 🧠 MONGO CONNECT
+// ==============================
+
+mongoose.connect(MONGO_URI)
+  .then(() => console.log("✅ Mongo Connected"))
+  .catch(err => console.log("❌ Mongo Error:", err.message));
+
+// ==============================
+// 🧠 SCHEMA
+// ==============================
+
+const zoneLogSchema = new mongoose.Schema({
+  gate_id: String,
+  crowdLevel: Number,
+  waitTime: Number,
+  hour: Number,
+  day: Number,
+  timestamp: Date,
+});
+
+// ⚠️ IMPORTANT: collection name must match MongoDB EXACTLY
+const ZoneLog = mongoose.model("zonelogs", zoneLogSchema);
+
+// ==============================
+// 🧠 KAFKA
+// ==============================
 
 const kafka = new Kafka({
   clientId: "smart-venue",
   brokers: [BROKER],
   logLevel: logLevel.NOTHING,
-
-  retry: {
-    initialRetryTime: 300,
-    retries: 10,
-  },
 });
+
+// ==============================
+// 🧠 REDIS (SAFE)
+// ==============================
+
+let redis = null;
+
+if (REDIS_URL) {
+  try {
+    redis = new Redis(REDIS_URL, { tls: {} });
+
+    redis.on("connect", () => console.log("✅ Redis Connected"));
+
+    redis.on("error", (err) => {
+      console.log("⚠️ Redis disabled:", err.message);
+      redis = null;
+    });
+
+  } catch {
+    console.log("⚠️ Redis not available");
+  }
+}
 
 // ==============================
 // 🧠 STATE
@@ -32,16 +81,69 @@ let consumer = null;
 let isRunning = false;
 let isConnecting = false;
 
+let zoneBuffer = {};
+let lastEmit = Date.now();
+const EMIT_INTERVAL = 1500;
+
 // ==============================
-// 🔁 SAFE JSON PARSE
+// 🔁 SAFE PARSE
 // ==============================
 
 const safeParse = (data) => {
   try {
     return JSON.parse(data);
-  } catch (err) {
-    console.log("❌ JSON Parse Error:", err.message);
+  } catch {
     return null;
+  }
+};
+
+// ==============================
+// 🤖 CALL AI
+// ==============================
+
+const callAI = async (zones) => {
+  try {
+    const res = await axios.post(AI_URL, { zones }, { timeout: 3000 });
+
+    console.log("🤖 AI Response:", res.data);
+
+    return res.data?.data || zones;
+
+  } catch (err) {
+    console.log("⚠️ AI fallback:", err.message);
+    return zones;
+  }
+};
+
+// ==============================
+// 📡 PROCESS & EMIT
+// ==============================
+
+const processAndEmit = async (io) => {
+  try {
+    const zones = Object.values(zoneBuffer);
+    if (!zones.length) return;
+
+    console.log("📊 Zones:", zones);
+
+    const result = await callAI(zones);
+
+    // Redis (optional)
+    if (redis) {
+      try {
+        await redis.set("latest_zones", JSON.stringify(result), "EX", 10);
+      } catch {}
+    }
+
+    // Socket
+    if (io) {
+      io.emit("zoneUpdate", result);
+    }
+
+    console.log("📤 Sent to app");
+
+  } catch (err) {
+    console.log("❌ Process Error:", err.message);
   }
 };
 
@@ -50,95 +152,80 @@ const safeParse = (data) => {
 // ==============================
 
 const startConsumer = async (io) => {
-  if (isRunning || isConnecting) {
-    console.log("⚠️ Consumer already running/connecting");
-    return;
-  }
+  if (isRunning || isConnecting) return;
 
   try {
     isConnecting = true;
 
-    console.log("🔥 Starting Kafka Consumer...");
-    console.log("📡 Broker:", BROKER);
-
-    consumer = kafka.consumer({
-      groupId: "zone-group",
-    });
-
-    // ==============================
-    // 🔌 CONNECT
-    // ==============================
+    consumer = kafka.consumer({ groupId: "zone-group" });
 
     await consumer.connect();
-    console.log("✅ Kafka Consumer Connected");
-
-    // ==============================
-    // 📡 SUBSCRIBE
-    // ==============================
+    console.log("✅ Kafka Connected");
 
     await consumer.subscribe({
       topic: "zone-updates",
       fromBeginning: false,
     });
 
-    console.log("📡 Subscribed to topic: zone-updates");
+    console.log("📡 Subscribed to zone-updates");
 
     isRunning = true;
     isConnecting = false;
-
-    // ==============================
-    // 🔁 MESSAGE HANDLER
-    // ==============================
 
     await consumer.run({
       eachMessage: async ({ message }) => {
         try {
           if (!message?.value) return;
 
-          const raw = message.value.toString();
-          const data = safeParse(raw);
-
+          const data = safeParse(message.value.toString());
           if (!data) return;
 
-          console.log("📊 Kafka Event:", data);
+          console.log("📥 Kafka:", data);
+
+          const gateId = data.gate_id || "A";
+          const now = new Date();
 
           // ==============================
-          // 🧠 PROCESS DATA
+          // 💾 SAVE TO MONGO (FIXED)
           // ==============================
 
-          const crowdLevel = Number(data.crowdLevel || 0);
+          try {
+            await ZoneLog.create({
+              gate_id: gateId,
+              crowdLevel: Number(data.crowdLevel || 0),
+              waitTime: Number(data.waitTime || 0),
+              hour: now.getHours(),
+              day: now.getDay(),
+              timestamp: now,
+            });
 
-          const processed = {
-            ...data,
-            crowdLevel,
+            console.log("💾 Saved to Mongo:", gateId);
 
-            timestamp: new Date().toISOString(),
+          } catch (err) {
+            console.log("❌ Mongo Save Error:", err.message);
+          }
 
-            waitTime:
-              data.waitTime ??
-              Math.max(1, Math.round(crowdLevel * 0.2)),
+          // ==============================
+          // 🧠 BUFFER
+          // ==============================
 
-            suggestion:
-              crowdLevel > 70
-                ? "⚠️ Try another gate"
-                : "✅ Best gate",
-
-            alert:
-              crowdLevel >= 85
-                ? "🚨 High congestion"
-                : null,
+          zoneBuffer[gateId] = {
+            id: gateId,
+            crowdLevel: Number(data.crowdLevel || 0),
+            waitTime: Number(data.waitTime || 0),
+            distance: 100 + Math.floor(Math.random() * 200),
+            hour: now.getHours(),
+            day: now.getDay(),
           };
 
-          console.log("🧠 Processed:", processed);
-
           // ==============================
-          // 📡 EMIT TO SOCKET
+          // ⏱ BATCH EMIT
           // ==============================
 
-          if (io) {
-            io.emit("zoneUpdate", processed);
-          } else {
-            console.log("⚠️ Socket.io not available");
+          if (Date.now() - lastEmit >= EMIT_INTERVAL) {
+            await processAndEmit(io);
+            zoneBuffer = {};
+            lastEmit = Date.now();
           }
 
         } catch (err) {
@@ -153,9 +240,8 @@ const startConsumer = async (io) => {
     isRunning = false;
     isConnecting = false;
 
-    // 🔁 Retry safely
     setTimeout(() => {
-      console.log("🔄 Restarting Kafka Consumer...");
+      console.log("🔄 Restarting consumer...");
       startConsumer(io);
     }, 5000);
   }
@@ -169,10 +255,16 @@ const disconnectConsumer = async () => {
   try {
     if (consumer) {
       await consumer.disconnect();
+
+      if (redis) await redis.quit();
+
+      await mongoose.disconnect();
+
+      console.log("🔌 Disconnected");
+
       consumer = null;
       isRunning = false;
       isConnecting = false;
-      console.log("🔌 Consumer Disconnected");
     }
   } catch (err) {
     console.log("❌ Disconnect Error:", err.message);
@@ -180,7 +272,7 @@ const disconnectConsumer = async () => {
 };
 
 // ==============================
-// 📤 EXPORTS
+// 📤 EXPORT
 // ==============================
 
 module.exports = {

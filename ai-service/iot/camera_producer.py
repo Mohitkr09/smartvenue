@@ -1,44 +1,149 @@
+# iot/camera_producer.py
+
 from kafka import KafkaProducer
 import json
 import time
 import cv2
+import numpy as np
 
-producer = KafkaProducer(
-    bootstrap_servers='localhost:9092',
-    value_serializer=lambda v: json.dumps(v).encode('utf-8')
-)
+# ==============================
+# ⚙️ CONFIG
+# ==============================
+
+KAFKA_BROKER = "localhost:9092"
+TOPIC = "zone-updates"
+GATE_ID = "Gate_A"
+
+SEND_INTERVAL = 2   # seconds
+SMOOTH_WINDOW = 5   # smoothing buffer
+
+# ==============================
+# 📡 KAFKA PRODUCER
+# ==============================
+
+def create_producer():
+    return KafkaProducer(
+        bootstrap_servers=KAFKA_BROKER,
+        value_serializer=lambda v: json.dumps(v).encode("utf-8"),
+        retries=5
+    )
+
+producer = create_producer()
+
+# ==============================
+# 🎥 CAMERA SETUP
+# ==============================
 
 cap = cv2.VideoCapture(0)
+
+if not cap.isOpened():
+    print("❌ Camera not found")
+    exit()
+
+# ==============================
+# 🧠 HUMAN DETECTOR (HOG)
+# ==============================
 
 hog = cv2.HOGDescriptor()
 hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
 
-GATE_ID = "Gate A"
+# ==============================
+# 📊 SMOOTHING BUFFER
+# ==============================
+
+history = []
+
+def smooth_count(count):
+    history.append(count)
+    if len(history) > SMOOTH_WINDOW:
+        history.pop(0)
+    return int(np.mean(history))
+
+# ==============================
+# 📤 SEND DATA
+# ==============================
+
+def send_to_kafka(data):
+    try:
+        producer.send(TOPIC, data)
+        producer.flush()
+        print("📡 Sent:", data)
+    except Exception as e:
+        print("❌ Kafka error:", e)
+
+# ==============================
+# 🚀 MAIN LOOP
+# ==============================
+
+last_sent = 0
 
 while True:
     ret, frame = cap.read()
     if not ret:
+        print("❌ Frame read failed")
         break
 
-    boxes, _ = hog.detectMultiScale(frame)
-    count = len(boxes)
+    # Resize for speed
+    frame = cv2.resize(frame, (640, 480))
 
-    data = {
-        "gate_id": GATE_ID,
-        "crowdLevel": min(100, count * 5),
-        "waitTime": max(1, count // 2)
-    }
+    # Detect people
+    boxes, weights = hog.detectMultiScale(frame, winStride=(8, 8))
 
-    print("📡 Sending:", data)
+    people_count = len(boxes)
 
-    producer.send("zone-updates", data)
+    # Smooth count
+    smooth_people = smooth_count(people_count)
 
-    cv2.imshow("Camera", frame)
+    # Convert to crowd %
+    crowd_level = min(100, smooth_people * 5)
 
+    wait_time = max(1, smooth_people // 2)
+
+    # Draw boxes
+    for (x, y, w, h) in boxes:
+        cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
+
+    # Display info
+    cv2.putText(frame, f"People: {smooth_people}", (10, 30),
+                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+
+    cv2.putText(frame, f"Crowd: {crowd_level}%", (10, 70),
+                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+
+    # ==============================
+    # 📡 SEND DATA (INTERVAL BASED)
+    # ==============================
+
+    now = time.time()
+
+    if now - last_sent >= SEND_INTERVAL:
+        payload = {
+            "gate_id": GATE_ID,
+            "crowdLevel": int(crowd_level),
+            "waitTime": int(wait_time),
+            "timestamp": int(now)
+        }
+
+        send_to_kafka(payload)
+        last_sent = now
+
+    # Show window
+    cv2.imshow("Smart Venue Camera", frame)
+
+    # ESC to exit
     if cv2.waitKey(1) & 0xFF == 27:
         break
 
-    time.sleep(2)
+# ==============================
+# 🔌 CLEANUP
+# ==============================
 
 cap.release()
 cv2.destroyAllWindows()
+
+try:
+    producer.close()
+except:
+    pass
+
+print("🔌 Camera stopped")

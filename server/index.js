@@ -6,39 +6,22 @@ const { Server } = require("socket.io");
 const cors = require("cors");
 const mongoose = require("mongoose");
 const morgan = require("morgan");
-
-// 🔥 REDIS
-const { createAdapter } = require("@socket.io/redis-adapter");
-const { createClient } = require("redis");
-
-// 🔥 KAFKA
-const { connectProducer } = require("./kafka/producer");
-const { startConsumer } = require("./kafka/consumer");
+const axios = require("axios");
 
 // Models
 const Zone = require("./models/Zone");
+const ZoneLog = require("./models/ZoneLog");
 
 // Routes
 const authRoutes = require("./routes/authRoutes");
 const userRoutes = require("./routes/userRoutes");
-
-// =======================
-// 🔔 PUSH TOKENS (TEMP)
-// =======================
-let pushTokens = [];
 
 const app = express();
 
 // =======================
 // 🔧 MIDDLEWARE
 // =======================
-app.use(
-  cors({
-    origin: "*", // 🔥 allow mobile easily
-    methods: ["GET", "POST"],
-  })
-);
-
+app.use(cors({ origin: "*" }));
 app.use(express.json());
 app.use(morgan("dev"));
 
@@ -49,25 +32,92 @@ app.use("/auth", authRoutes);
 app.use("/user", userRoutes);
 
 // =======================
-// 🔔 SAVE TOKEN
+// 🤖 AI CALL FUNCTION
 // =======================
-app.post("/save-token", (req, res) => {
+const getPrediction = async (zones) => {
   try {
-    const { token } = req.body;
+    const res = await axios.post("http://localhost:7000/predict-zones", {
+      zones,
+    });
 
-    if (!token) {
-      return res.status(400).json({ msg: "No token" });
+    return res.data.data;
+
+  } catch (err) {
+    console.log("⚠️ AI fallback:", err.message);
+    return zones; // fallback
+  }
+};
+
+// =======================
+// 📡 IoT DATA (AI ENABLED)
+// =======================
+app.post("/iot-data", async (req, res) => {
+  try {
+    const data = req.body;
+
+    if (!data) {
+      return res.status(400).json({ error: "No data" });
     }
 
-    if (!pushTokens.includes(token)) {
-      pushTokens.push(token);
-    }
+    console.log("📡 IoT Data:", data);
 
-    console.log("📱 Total Tokens:", pushTokens.length);
+    const now = new Date();
+
+    const enriched = {
+      device_id: data.device_id || "unknown",
+      gate_id: data.gate_id,
+      crowdLevel: Number(data.crowdLevel || 0),
+      waitTime: Number(data.waitTime || 1),
+      hour: now.getHours(),
+      day: now.getDay(),
+      timestamp: now,
+    };
+
+    // 💾 SAVE TO MONGO
+    await ZoneLog.create(enriched);
+
+    console.log("💾 Saved to Mongo:", enriched.gate_id);
+
+    // 🔥 Update zone live
+    await Zone.findOneAndUpdate(
+      { name: `Gate ${enriched.gate_id}` },
+      {
+        crowdLevel: enriched.crowdLevel,
+        waitTime: enriched.waitTime,
+      }
+    );
+
+    // =========================
+    // 🧠 FETCH LATEST ZONES
+    // =========================
+    const latest = await ZoneLog.find()
+      .sort({ timestamp: -1 })
+      .limit(4);
+
+    const zones = latest.map(z => ({
+      id: z.gate_id,
+      crowdLevel: z.crowdLevel,
+      waitTime: z.waitTime,
+      hour: z.hour,
+      day: z.day
+    }));
+
+    // =========================
+    // 🤖 CALL AI
+    // =========================
+    const prediction = await getPrediction(zones);
+
+    console.log("🤖 AI Prediction:", prediction);
+
+    // =========================
+    // 📡 SEND TO APP
+    // =========================
+    io.emit("zoneUpdate", prediction);
 
     res.json({ success: true });
+
   } catch (err) {
-    console.log("❌ Token Error:", err.message);
+    console.log("❌ IoT Error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -76,58 +126,8 @@ app.post("/save-token", (req, res) => {
 // 🌐 HEALTH
 // =======================
 app.get("/", (req, res) => {
-  res.json({
-    status: "running",
-    service: "Smart Venue API",
-  });
+  res.json({ status: "running ✅" });
 });
-
-// =======================
-// 🔌 DATABASE
-// =======================
-async function connectDB() {
-  try {
-    console.log("🔌 Connecting MongoDB...");
-    await mongoose.connect(process.env.MONGO_URI);
-    console.log("✅ MongoDB Connected");
-
-    await seedZones();
-  } catch (err) {
-    console.error("❌ MongoDB Error:", err.message);
-    process.exit(1);
-  }
-}
-
-// =======================
-// 🌱 SEED
-// =======================
-async function seedZones() {
-  try {
-    const zones = [
-      { name: "Gate A", lat: 25.4484, lng: 78.5685 },
-      { name: "Gate B", lat: 25.4490, lng: 78.5690 },
-      { name: "Gate C", lat: 25.4475, lng: 78.5670 },
-      { name: "VIP Gate", lat: 25.4500, lng: 78.5700 },
-      { name: "Food Entry", lat: 25.4465, lng: 78.5660 },
-    ];
-
-    for (let z of zones) {
-      await Zone.findOneAndUpdate(
-        { name: z.name },
-        {
-          ...z,
-          crowdLevel: Math.floor(Math.random() * 50),
-          waitTime: Math.floor(Math.random() * 5),
-        },
-        { upsert: true }
-      );
-    }
-
-    console.log("✅ Zones Seeded");
-  } catch (err) {
-    console.log("⚠️ Seed skipped:", err.message);
-  }
-}
 
 // =======================
 // 🔄 ZONES API
@@ -137,10 +137,49 @@ app.get("/zones", async (req, res) => {
     const zones = await Zone.find();
     res.json(zones);
   } catch (err) {
-    console.error("❌ Zones Error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
+
+// =======================
+// 🔌 DATABASE
+// =======================
+async function connectDB() {
+  try {
+    await mongoose.connect(process.env.MONGO_URI);
+    console.log("✅ MongoDB Connected");
+    await seedZones();
+  } catch (err) {
+    console.error("❌ Mongo Error:", err.message);
+    process.exit(1);
+  }
+}
+
+// =======================
+// 🌱 SEED
+// =======================
+async function seedZones() {
+  const zones = [
+    { name: "Gate A", lat: 25.4484, lng: 78.5685 },
+    { name: "Gate B", lat: 25.4490, lng: 78.5690 },
+    { name: "Gate C", lat: 25.4475, lng: 78.5670 },
+    { name: "Gate D", lat: 25.4500, lng: 78.5700 },
+  ];
+
+  for (let z of zones) {
+    await Zone.findOneAndUpdate(
+      { name: z.name },
+      {
+        ...z,
+        crowdLevel: 0,
+        waitTime: 0,
+      },
+      { upsert: true }
+    );
+  }
+
+  console.log("✅ Zones Seeded");
+}
 
 // =======================
 // 🔌 SOCKET
@@ -148,49 +187,11 @@ app.get("/zones", async (req, res) => {
 const server = http.createServer(app);
 
 const io = new Server(server, {
-  cors: {
-    origin: "*",
-  },
+  cors: { origin: "*" },
 });
 
-// =======================
-// 🔥 REDIS (OPTIONAL)
-// =======================
-async function setupRedis() {
-  const redisUrl =
-    process.env.REDIS_URL || process.env.REDIS_URI;
-
-  if (!redisUrl) {
-    console.log("⚠️ Redis not configured");
-    return;
-  }
-
-  try {
-    console.log("🔌 Connecting Redis...");
-
-    const pubClient = createClient({ url: redisUrl });
-    const subClient = pubClient.duplicate();
-
-    await pubClient.connect();
-    await subClient.connect();
-
-    io.adapter(createAdapter(pubClient, subClient));
-
-    console.log("🔥 Redis Connected");
-  } catch (err) {
-    console.log("⚠️ Redis failed:", err.message);
-  }
-}
-
-// =======================
-// 🔌 SOCKET EVENTS
-// =======================
 io.on("connection", (socket) => {
-  console.log("🟢 Connected:", socket.id);
-
-  socket.on("disconnect", () => {
-    console.log("🔴 Disconnected:", socket.id);
-  });
+  console.log("🟢 Client connected:", socket.id);
 });
 
 // =======================
@@ -199,55 +200,11 @@ io.on("connection", (socket) => {
 const PORT = process.env.PORT || 5000;
 
 async function startServer() {
-  try {
-    console.log("🚀 Starting server...");
+  await connectDB();
 
-    await connectDB();
-    await setupRedis();
-
-    server.listen(PORT, "0.0.0.0", () => {
-      console.log(`🚀 Running on port ${PORT}`);
-    });
-
-    // ===============================
-    // 🔥 KAFKA (FIXED)
-    // ===============================
-    const BROKER = process.env.KAFKA_BROKER;
-
-    if (BROKER) {
-      console.log("📡 Kafka ENABLED");
-
-      connectProducer();
-
-      setTimeout(() => {
-        startConsumer(io);
-      }, 2000);
-    } else {
-      console.log("⚠️ Kafka not configured");
-    }
-
-  } catch (err) {
-    console.error("❌ Startup Error:", err.message);
-    process.exit(1);
-  }
+  server.listen(PORT, "0.0.0.0", () => {
+    console.log(`🚀 Running on ${PORT}`);
+  });
 }
 
 startServer();
-
-// =======================
-// 🛑 ERROR HANDLING
-// =======================
-process.on("uncaughtException", (err) => {
-  console.error("❌ Uncaught:", err.message);
-});
-
-process.on("unhandledRejection", (err) => {
-  console.error("❌ Rejection:", err);
-});
-
-// =======================
-// 📤 EXPORT
-// =======================
-module.exports = {
-  pushTokens,
-};
