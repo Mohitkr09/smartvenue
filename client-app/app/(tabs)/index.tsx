@@ -122,7 +122,7 @@ export default function HomeScreen() {
     return "↘️";
   };
 
-  // ================= HEATMAP =================
+  // ================= COLOR =================
   const getColor = (crowd) => {
     if (crowd > 80) return "red";
     if (crowd > 60) return "orange";
@@ -138,7 +138,7 @@ export default function HomeScreen() {
     }
   };
 
-  // ================= FETCH ROUTE (SECURE) =================
+  // ================= ROUTE =================
   const fetchRoute = async (user, gate) => {
     try {
       const res = await axios.post(`${API_URL}/route`, {
@@ -150,12 +150,12 @@ export default function HomeScreen() {
         res.data.routes[0].overview_polyline.points
       );
 
-      const coords = points.map((p) => ({
-        latitude: p[0],
-        longitude: p[1],
-      }));
-
-      setRouteCoords(coords);
+      setRouteCoords(
+        points.map((p) => ({
+          latitude: p[0],
+          longitude: p[1],
+        }))
+      );
 
       const duration = res.data.routes[0].legs[0].duration.value;
       setEta(Math.round(duration / 60));
@@ -184,7 +184,7 @@ export default function HomeScreen() {
 
     setDirection(dir);
 
-    if (routeCoords.length === 0) {
+    if (routeCoords.length === 0 || Math.random() < 0.05) {
       fetchRoute(user, gate);
     }
 
@@ -269,13 +269,19 @@ export default function HomeScreen() {
               ⏱ ETA: {eta} min
             </Text>
 
+            {/* ✅ FIXED BUTTON */}
             <TouchableOpacity
               style={styles.btn}
-              onPress={() =>
+              onPress={() => {
+                const gate = zones.find(
+                  (z) => z.name === `Gate ${bestGate.id}`
+                );
+                if (!gate) return;
+
                 Linking.openURL(
-                  `https://www.google.com/maps/dir/?api=1&destination=${location.latitude},${location.longitude}`
-                )
-              }
+                  `https://www.google.com/maps/dir/?api=1&destination=${gate.lat},${gate.lng}&travelmode=walking`
+                );
+              }}
             >
               <Text style={styles.btnText}>
                 🧭 Open Google Maps
