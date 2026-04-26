@@ -11,7 +11,6 @@ import { useEffect, useState, useRef } from "react";
 import axios from "axios";
 import * as Location from "expo-location";
 import * as Speech from "expo-speech";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Linking } from "react-native";
 import { io } from "socket.io-client";
 import polyline from "@mapbox/polyline";
@@ -19,8 +18,6 @@ import { Polyline } from "react-native-maps";
 
 const API_URL = "https://smartvenue.online";
 const socket = io(API_URL);
-
-const GOOGLE_API_KEY = "AIzaSyDC09f5O9mqoGbIsRXYhnDu0tpfli6UJ-s";
 
 let MapView: any, Marker: any;
 
@@ -35,7 +32,6 @@ export default function HomeScreen() {
   const [location, setLocation] = useState<any>(null);
   const [bestGate, setBestGate] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [isInEvent, setIsInEvent] = useState(false);
   const [distanceLeft, setDistanceLeft] = useState(0);
   const [direction, setDirection] = useState("⬆️");
   const [routeCoords, setRouteCoords] = useState<any[]>([]);
@@ -45,6 +41,7 @@ export default function HomeScreen() {
   const lastSpeech = useRef("");
   const lastDistanceCall = useRef(0);
 
+  // ================= INIT =================
   useEffect(() => {
     startTracking();
     fetchZones();
@@ -59,14 +56,22 @@ export default function HomeScreen() {
       duration: 600,
       useNativeDriver: true,
     }).start();
+
+    return () => socket.disconnect();
   }, []);
 
+  // ================= FETCH ZONES =================
   const fetchZones = async () => {
-    const res = await axios.get(`${API_URL}/zones`);
-    setZones(res.data || []);
+    try {
+      const res = await axios.get(`${API_URL}/zones`);
+      setZones(res.data || []);
+    } catch (err) {
+      console.log("❌ Zone error:", err.message);
+    }
     setLoading(false);
   };
 
+  // ================= GPS =================
   const startTracking = async () => {
     const { status } = await Location.requestForegroundPermissionsAsync();
     if (status !== "granted") return;
@@ -87,6 +92,7 @@ export default function HomeScreen() {
     );
   };
 
+  // ================= DISTANCE =================
   const getDistance = (lat1, lon1, lat2, lon2) => {
     const R = 6371e3;
     const dLat = ((lat2 - lat1) * Math.PI) / 180;
@@ -101,6 +107,7 @@ export default function HomeScreen() {
     return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   };
 
+  // ================= DIRECTION =================
   const getDirection = (lat1, lon1, lat2, lon2) => {
     const angle = Math.atan2(lat2 - lat1, lon2 - lon1);
     const deg = (angle * 180) / Math.PI;
@@ -115,6 +122,7 @@ export default function HomeScreen() {
     return "↘️";
   };
 
+  // ================= HEATMAP =================
   const getColor = (crowd) => {
     if (crowd > 80) return "red";
     if (crowd > 60) return "orange";
@@ -122,6 +130,7 @@ export default function HomeScreen() {
     return "green";
   };
 
+  // ================= VOICE =================
   const speak = (text) => {
     if (lastSpeech.current !== text) {
       Speech.speak(text);
@@ -129,26 +138,33 @@ export default function HomeScreen() {
     }
   };
 
+  // ================= FETCH ROUTE (SECURE) =================
   const fetchRoute = async (user, gate) => {
-    const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${user.latitude},${user.longitude}&destination=${gate.lat},${gate.lng}&key=${GOOGLE_API_KEY}`;
+    try {
+      const res = await axios.post(`${API_URL}/route`, {
+        origin: { lat: user.latitude, lng: user.longitude },
+        destination: { lat: gate.lat, lng: gate.lng },
+      });
 
-    const res = await axios.get(url);
+      const points = polyline.decode(
+        res.data.routes[0].overview_polyline.points
+      );
 
-    const points = polyline.decode(
-      res.data.routes[0].overview_polyline.points
-    );
+      const coords = points.map((p) => ({
+        latitude: p[0],
+        longitude: p[1],
+      }));
 
-    const coords = points.map((p) => ({
-      latitude: p[0],
-      longitude: p[1],
-    }));
+      setRouteCoords(coords);
 
-    setRouteCoords(coords);
-
-    const duration = res.data.routes[0].legs[0].duration.value;
-    setEta(Math.round(duration / 60));
+      const duration = res.data.routes[0].legs[0].duration.value;
+      setEta(Math.round(duration / 60));
+    } catch (err) {
+      console.log("❌ Route error:", err.message);
+    }
   };
 
+  // ================= NAVIGATION =================
   const updateNavigation = (user, gate) => {
     const dist = getDistance(
       user.latitude,
@@ -165,6 +181,7 @@ export default function HomeScreen() {
       gate.lat,
       gate.lng
     );
+
     setDirection(dir);
 
     if (routeCoords.length === 0) {
@@ -180,7 +197,7 @@ export default function HomeScreen() {
     if (dir === "➡️") speak("Turn right");
 
     if (bestGate?.status === "HIGH") {
-      speak("Crowd is high at this gate");
+      speak("This gate is crowded");
     }
 
     if (dist < 30) {
@@ -188,6 +205,7 @@ export default function HomeScreen() {
     }
   };
 
+  // ================= LOADING =================
   if (loading || !location) {
     return (
       <View style={styles.center}>
@@ -196,6 +214,7 @@ export default function HomeScreen() {
     );
   }
 
+  // ================= UI =================
   return (
     <Animated.View style={[styles.container, { opacity: fadeAnim }]}>
       <MapView
@@ -220,7 +239,7 @@ export default function HomeScreen() {
           <Polyline
             coordinates={routeCoords}
             strokeWidth={4}
-            strokeColor="#00f"
+            strokeColor="#2563eb"
           />
         )}
       </MapView>
@@ -235,11 +254,11 @@ export default function HomeScreen() {
             </Text>
 
             <Text style={styles.info}>
-              🔮 {bestGate.futureCrowd}
+              🔮 Future: {bestGate.futureCrowd}
             </Text>
 
             <Text style={styles.info}>
-              📊 {bestGate.status}
+              📊 Status: {bestGate.status}
             </Text>
 
             <Text style={styles.info}>
@@ -247,7 +266,7 @@ export default function HomeScreen() {
             </Text>
 
             <Text style={styles.info}>
-              ⏱ {eta} min
+              ⏱ ETA: {eta} min
             </Text>
 
             <TouchableOpacity
@@ -258,7 +277,9 @@ export default function HomeScreen() {
                 )
               }
             >
-              <Text style={styles.btnText}>Open Maps</Text>
+              <Text style={styles.btnText}>
+                🧭 Open Google Maps
+              </Text>
             </TouchableOpacity>
           </>
         )}
@@ -267,9 +288,11 @@ export default function HomeScreen() {
   );
 }
 
+// ================= STYLES =================
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#020617" },
   map: { flex: 1 },
+
   card: {
     position: "absolute",
     bottom: 20,
@@ -279,9 +302,25 @@ const styles = StyleSheet.create({
     padding: 20,
     borderRadius: 20,
   },
-  arrow: { fontSize: 40, textAlign: "center" },
-  gate: { color: "white", fontSize: 22, textAlign: "center" },
-  info: { color: "#cbd5f5", textAlign: "center", marginTop: 5 },
+
+  arrow: {
+    fontSize: 40,
+    textAlign: "center",
+  },
+
+  gate: {
+    color: "white",
+    fontSize: 22,
+    textAlign: "center",
+    fontWeight: "bold",
+  },
+
+  info: {
+    color: "#cbd5f5",
+    textAlign: "center",
+    marginTop: 5,
+  },
+
   btn: {
     backgroundColor: "#22c55e",
     padding: 14,
@@ -289,7 +328,12 @@ const styles = StyleSheet.create({
     marginTop: 10,
     alignItems: "center",
   },
-  btnText: { color: "white", fontWeight: "bold" },
+
+  btnText: {
+    color: "white",
+    fontWeight: "bold",
+  },
+
   center: {
     flex: 1,
     justifyContent: "center",

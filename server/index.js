@@ -36,20 +36,49 @@ app.use("/user", userRoutes);
 // =======================
 const getPrediction = async (zones) => {
   try {
-    const res = await axios.post("http://localhost:7000/predict-zones", {
-      zones,
-    });
+    const res = await axios.post(
+      process.env.AI_URL || "http://localhost:7000/predict-zones",
+      { zones }
+    );
 
     return res.data.data;
-
   } catch (err) {
     console.log("⚠️ AI fallback:", err.message);
-    return zones; // fallback
+    return zones;
   }
 };
 
 // =======================
-// 📡 IoT DATA (AI ENABLED)
+// 🧭 SECURE GOOGLE ROUTE
+// =======================
+app.post("/route", async (req, res) => {
+  try {
+    const { origin, destination } = req.body;
+
+    if (!origin || !destination) {
+      return res.status(400).json({ error: "Missing params" });
+    }
+
+    const response = await axios.get(
+      "https://maps.googleapis.com/maps/api/directions/json",
+      {
+        params: {
+          origin: `${origin.lat},${origin.lng}`,
+          destination: `${destination.lat},${destination.lng}`,
+          key: process.env.GOOGLE_MAPS_API_KEY,
+        },
+      }
+    );
+
+    res.json(response.data);
+  } catch (err) {
+    console.log("❌ Route error:", err.message);
+    res.status(500).json({ error: "Route failed" });
+  }
+});
+
+// =======================
+// 📡 IoT DATA (AI PIPELINE)
 // =======================
 app.post("/iot-data", async (req, res) => {
   try {
@@ -73,12 +102,12 @@ app.post("/iot-data", async (req, res) => {
       timestamp: now,
     };
 
-    // 💾 SAVE TO MONGO
+    // 💾 SAVE
     await ZoneLog.create(enriched);
 
-    console.log("💾 Saved to Mongo:", enriched.gate_id);
+    console.log("💾 Saved:", enriched.gate_id);
 
-    // 🔥 Update zone live
+    // 🔄 UPDATE ZONE
     await Zone.findOneAndUpdate(
       { name: `Gate ${enriched.gate_id}` },
       {
@@ -88,34 +117,33 @@ app.post("/iot-data", async (req, res) => {
     );
 
     // =========================
-    // 🧠 FETCH LATEST ZONES
+    // 🧠 GET LATEST ZONES
     // =========================
     const latest = await ZoneLog.find()
       .sort({ timestamp: -1 })
       .limit(4);
 
-    const zones = latest.map(z => ({
+    const zones = latest.map((z) => ({
       id: z.gate_id,
       crowdLevel: z.crowdLevel,
       waitTime: z.waitTime,
       hour: z.hour,
-      day: z.day
+      day: z.day,
     }));
 
     // =========================
-    // 🤖 CALL AI
+    // 🤖 AI PREDICTION
     // =========================
     const prediction = await getPrediction(zones);
 
-    console.log("🤖 AI Prediction:", prediction);
+    console.log("🤖 AI:", prediction);
 
     // =========================
-    // 📡 SEND TO APP
+    // 📡 SOCKET EMIT
     // =========================
     io.emit("zoneUpdate", prediction);
 
     res.json({ success: true });
-
   } catch (err) {
     console.log("❌ IoT Error:", err.message);
     res.status(500).json({ error: err.message });
@@ -126,11 +154,14 @@ app.post("/iot-data", async (req, res) => {
 // 🌐 HEALTH
 // =======================
 app.get("/", (req, res) => {
-  res.json({ status: "running ✅" });
+  res.json({
+    status: "running ✅",
+    ai: process.env.AI_URL || "local",
+  });
 });
 
 // =======================
-// 🔄 ZONES API
+// 📍 ZONES API
 // =======================
 app.get("/zones", async (req, res) => {
   try {
