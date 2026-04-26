@@ -1,152 +1,122 @@
 # ai-service/model.py
 
-import numpy as np
 import joblib
 import os
-
-# ==============================
-# ⚙️ CONFIG
-# ==============================
+import numpy as np
 
 MODEL_PATH = "models/crowd_model.pkl"
 
-CROWD_WEIGHT = 0.7
-DIST_WEIGHT = 0.3
+# ==============================
+# 📦 LOAD MODEL
+# ==============================
+if os.path.exists(MODEL_PATH):
+    model = joblib.load(MODEL_PATH)
+    print("✅ Real ML Model Loaded")
+else:
+    print("⚠️ Model not found, using fallback")
+    model = None
+
 
 # ==============================
-# 📂 LOAD TRAINED MODEL
+# 🔮 SINGLE PREDICTION
 # ==============================
-
-def load_model():
-    if os.path.exists(MODEL_PATH):
-        print("✅ Real ML Model Loaded")
-        return joblib.load(MODEL_PATH)
-    else:
-        print("❌ No trained model found. Run train_from_db.py")
-        return None
-
-model = load_model()
-
-# ==============================
-# 🔮 PREDICT FUTURE CROWD (REAL)
-# ==============================
-
-def predict_future_crowd(crowd, wait, hour, day):
+def predict_crowd(crowd, wait, hour=12, day=0):
     try:
-        crowd = int(crowd)
-        wait = int(wait)
-        hour = int(hour)
-        day = int(day)
-    except:
-        crowd, wait, hour, day = 0, 0, 0, 0
+        if model:
+            X = np.array([[crowd, wait, hour, day]])
+            pred = model.predict(X)[0]
+        else:
+            pred = crowd + 5  # fallback
 
-    if model is None:
-        return crowd  # fallback
+        pred = int(max(0, min(100, pred)))
 
-    input_data = np.array([[crowd, wait, hour, day]])
+        return {
+            "futureCrowd": pred,
+            "status": get_status(pred),
+            "suggestion": get_suggestion(pred)
+        }
 
-    future = model.predict(input_data)[0]
+    except Exception as e:
+        return {
+            "futureCrowd": crowd,
+            "status": "UNKNOWN",
+            "suggestion": "Error"
+        }
 
-    return int(max(0, min(100, future)))
+
+# ==============================
+# 🧠 MULTI-ZONE AI
+# ==============================
+def analyze_zones(zones):
+    results = []
+
+    for z in zones:
+        crowd = int(z.get("crowdLevel", 0))
+        wait = int(z.get("waitTime", 1))
+        hour = int(z.get("hour", 12))
+        day = int(z.get("day", 0))
+
+        pred = predict_crowd(crowd, wait, hour, day)
+
+        score = (
+            pred["futureCrowd"] * 0.7 +
+            wait * 2
+        )
+
+        results.append({
+            "id": z.get("id"),
+            "crowdLevel": crowd,
+            "waitTime": wait,
+            "futureCrowd": pred["futureCrowd"],
+            "status": pred["status"],
+            "suggestion": pred["suggestion"],
+            "score": score
+        })
+
+    # 🔥 SORT BEST GATE
+    results = sorted(results, key=lambda x: x["score"])
+
+    # 🏆 MARK BEST
+    if results:
+        results[0]["isBest"] = True
+
+    return results
+
 
 # ==============================
 # 🎯 STATUS LOGIC
 # ==============================
-
-def get_status(future):
-    if future >= 85:
-        return "OVERCROWDED", "🚨 Avoid this gate"
-    elif future >= 70:
-        return "HIGH", "⚠️ Try another gate"
-    elif future >= 50:
-        return "INCREASING", "📈 Crowd increasing"
-    elif future >= 30:
-        return "MODERATE", "🙂 Safe to proceed"
+def get_status(value):
+    if value >= 85:
+        return "OVERCROWDED"
+    elif value >= 70:
+        return "HIGH"
+    elif value >= 50:
+        return "MEDIUM"
+    elif value >= 30:
+        return "LOW"
     else:
-        return "SMOOTH", "✅ Best gate"
+        return "SMOOTH"
+
 
 # ==============================
-# 📊 NORMALIZATION
+# 💡 SUGGESTION
 # ==============================
+def get_suggestion(value):
+    if value >= 85:
+        return "Avoid this gate"
+    elif value >= 70:
+        return "Try another gate"
+    elif value >= 50:
+        return "Monitor crowd"
+    else:
+        return "Best gate"
 
-def normalize(value, max_val):
-    return value / max_val if max_val else 0
-
-# ==============================
-# 🚀 MAIN AI ENGINE (UPDATED)
-# ==============================
-
-def analyze_zones(zones):
-    if not zones:
-        return {
-            "bestGate": None,
-            "zones": [],
-            "alerts": []
-        }
-
-    max_crowd = max([z.get("crowdLevel", 0) for z in zones] or [1])
-    max_dist = max([z.get("distance", 0) for z in zones] or [1])
-
-    results = []
-    alerts = []
-
-    for z in zones:
-        gate_id = z.get("id")
-        crowd = z.get("crowdLevel", 0)
-        distance = z.get("distance", 0)
-        wait = z.get("waitTime", 0)
-
-        # 🔥 NEW FEATURES
-        hour = z.get("hour", 0)
-        day = z.get("day", 0)
-
-        # 🔮 REAL AI prediction
-        future = predict_future_crowd(crowd, wait, hour, day)
-
-        # 🧠 normalize
-        nc = normalize(crowd, max_crowd)
-        nd = normalize(distance, max_dist)
-
-        # 🎯 smart scoring
-        score = (1 - nc) * CROWD_WEIGHT + (1 - nd) * DIST_WEIGHT
-
-        status, suggestion = get_status(future)
-
-        result = {
-            "id": gate_id,
-            "score": round(score, 3),
-            "crowdLevel": crowd,
-            "distance": distance,
-            "futureCrowd": future,
-            "status": status,
-            "suggestion": suggestion
-        }
-
-        results.append(result)
-
-        # 🚨 alerts
-        if future >= 85:
-            alerts.append({
-                "id": gate_id,
-                "type": "HIGH_CONGESTION"
-            })
-
-    # 🔥 sort best gate
-    results.sort(key=lambda x: x["score"], reverse=True)
-
-    best_gate = results[0]["id"]
-
-    return {
-        "bestGate": best_gate,
-        "zones": results,
-        "alerts": alerts
-    }
 
 # ==============================
-# 🔁 MODEL SWITCH (OPTIONAL)
+# 🔁 SWITCH MODEL (OPTIONAL)
 # ==============================
-
 def switch_model(model_type):
     return {
-        "message": "Only ML model supported (real data)"
+        "message": f"Model switched to {model_type}"
     }
