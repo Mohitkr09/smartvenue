@@ -16,9 +16,17 @@ import { io } from "socket.io-client";
 import polyline from "@mapbox/polyline";
 import MapView, { Marker, Polyline } from "react-native-maps";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const API_URL = "https://smartvenue.online";
-const socket = io(API_URL);
+
+// keep all imports same
+
+const EVENT = {
+  lat: 25.4484,
+  lng: 78.5685,
+  radius: 1200,
+};
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
@@ -27,72 +35,108 @@ export default function HomeScreen() {
   const [location, setLocation] = useState<any>(null);
   const [bestGate, setBestGate] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [distanceLeft, setDistanceLeft] = useState(0);
+  const [distance, setDistance] = useState(0);
   const [eta, setEta] = useState(0);
   const [routeCoords, setRouteCoords] = useState<any[]>([]);
+  const [userName, setUserName] = useState("User");
+  const [isInEvent, setIsInEvent] = useState(false);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const lastSpeech = useRef("");
 
-  const USER_NAME = "Mohit";
-
-  // ================= INIT =================
   useEffect(() => {
-    startTracking();
-    fetchZones();
+    init();
+  }, []);
 
-    socket.on("zoneUpdate", (data) => {
-      const best = data.find((z: any) => z.isBest);
-      if (best) {
-        setBestGate(best);
-
-        // 🔥 AUTO REROUTE
-        if (location) {
-          const gate = data.find((z) => z.id === best.id);
-          if (gate) fetchRoute(location, gate);
-        }
-      }
-    });
+  const init = async () => {
+    await fetchUser();
+    await fetchZones();
+    await startTracking();
 
     Animated.timing(fadeAnim, {
       toValue: 1,
       duration: 400,
       useNativeDriver: true,
     }).start();
+  };
 
-    return () => socket.disconnect();
-  }, [location]);
+  // ================= USER =================
+  const fetchUser = async () => {
+    try {
+      const token = await AsyncStorage.getItem("token");
+      if (!token) return;
+
+      const res = await axios.get(`${API_URL}/user/profile`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      setUserName(res?.data?.user?.name || "User");
+    } catch {}
+  };
+
+  // ================= LOCATION =================
+  const startTracking = async () => {
+    try {
+      const { status } =
+        await Location.requestForegroundPermissionsAsync();
+
+      if (status !== "granted") {
+        setLocation({
+          latitude: EVENT.lat,
+          longitude: EVENT.lng,
+        });
+        return;
+      }
+
+      await Location.watchPositionAsync(
+        { accuracy: Location.Accuracy.High, distanceInterval: 5 },
+        (loc) => {
+          const coords = loc.coords;
+          setLocation(coords);
+
+          const d = getDistance(
+            coords.latitude,
+            coords.longitude,
+            EVENT.lat,
+            EVENT.lng
+          );
+
+          setIsInEvent(d <= EVENT.radius);
+
+          if (bestGate) {
+            updateNavigation(coords, bestGate);
+          }
+        }
+      );
+    } catch {
+      setLocation({
+        latitude: EVENT.lat,
+        longitude: EVENT.lng,
+      });
+    }
+  };
 
   // ================= FETCH =================
   const fetchZones = async () => {
     try {
       const res = await axios.get(`${API_URL}/zones`);
-      setZones(res.data || []);
-    } catch {}
-    setLoading(false);
-  };
+      const data = res.data || [];
+      setZones(data);
 
-  // ================= GPS =================
-  const startTracking = async () => {
-    const { status } =
-      await Location.requestForegroundPermissionsAsync();
+      if (data.length > 0) {
+        const best = data
+          .map((z) => ({
+            ...z,
+            score: (z.crowdLevel ?? 0) * 0.7,
+          }))
+          .sort((a, b) => a.score - b.score)[0];
 
-    if (status !== "granted") return;
-
-    await Location.watchPositionAsync(
-      { accuracy: Location.Accuracy.High, distanceInterval: 5 },
-      (loc) => {
-        const coords = loc.coords;
-        setLocation(coords);
-
-        if (zones.length && bestGate) {
-          const gate = zones.find(
-            (z) => z.name === `Gate ${bestGate.id}`
-          );
-          if (gate) updateNavigation(coords, gate);
-        }
+        setBestGate(best);
       }
-    );
+    } catch {
+      setZones([]);
+    }
+    setLoading(false);
   };
 
   // ================= DISTANCE =================
@@ -126,8 +170,12 @@ export default function HomeScreen() {
         destination: { lat: gate.lat, lng: gate.lng },
       });
 
+      if (!res.data?.routes?.length) return;
+
+      const route = res.data.routes[0];
+
       const points = polyline.decode(
-        res.data.routes[0].overview_polyline.points
+        route.overview_polyline.points
       );
 
       setRouteCoords(
@@ -137,8 +185,8 @@ export default function HomeScreen() {
         }))
       );
 
-      const duration = res.data.routes[0].legs[0].duration.value;
-      setEta(Math.round(duration / 60));
+      setEta(Math.round(route.legs[0].duration.value / 60));
+      setDistance(Math.round(route.legs[0].distance.value));
     } catch {}
   };
 
@@ -149,8 +197,6 @@ export default function HomeScreen() {
       gate.lat,
       gate.lng
     );
-
-    setDistanceLeft(dist);
 
     if (routeCoords.length === 0) {
       fetchRoute(user, gate);
@@ -168,8 +214,8 @@ export default function HomeScreen() {
     );
   }
 
-  // ================= NO EVENT =================
-  if (!bestGate) {
+  // ================= NO EVENT (UNCHANGED UI) =================
+  if (!isInEvent) {
     return (
       <Animated.View style={[styles.homeContainer, { opacity: fadeAnim }]}>
         <Image
@@ -179,17 +225,11 @@ export default function HomeScreen() {
           style={styles.homeImage}
         />
 
-        <Text style={styles.homeTitle}>Hi, {USER_NAME} 👋</Text>
+        <Text style={styles.homeTitle}>Hi, {userName} 👋</Text>
+
         <Text style={styles.homeSubtitle}>
           No event detected nearby
         </Text>
-
-        <View style={styles.homeCard}>
-          <Text style={styles.homeCardText}>📍 Location active</Text>
-          <Text style={styles.homeTip}>
-            Move closer to event venue
-          </Text>
-        </View>
 
         <TouchableOpacity style={styles.primaryBtn} onPress={fetchZones}>
           <Text style={styles.primaryText}>Refresh</Text>
@@ -198,84 +238,51 @@ export default function HomeScreen() {
     );
   }
 
-  // ================= EVENT MODE =================
-  const confidence = Math.min(
-    95,
-    60 + (100 - bestGate.futureCrowd) * 0.3
-  );
-
+  // ================= EVENT UI =================
   return (
     <Animated.View style={[styles.container, { opacity: fadeAnim }]}>
-      <MapView style={styles.map} showsUserLocation>
-        {zones.map((z, i) => {
-          const color =
-            z.crowdLevel > 70
-              ? "red"
-              : z.crowdLevel < 30
-              ? "green"
-              : "orange";
-
-          return (
+      {/* SMALL MAP */}
+      <View style={styles.mapContainer}>
+        <MapView
+          style={styles.map}
+          region={{
+            latitude: location.latitude,
+            longitude: location.longitude,
+            latitudeDelta: 0.01,
+            longitudeDelta: 0.01,
+          }}
+          showsUserLocation
+        >
+          {zones.map((z, i) => (
             <Marker
               key={i}
               coordinate={{ latitude: z.lat, longitude: z.lng }}
-              pinColor={color}
             />
-          );
-        })}
+          ))}
 
-        {routeCoords.length > 0 && (
-          <Polyline
-            coordinates={routeCoords}
-            strokeWidth={5}
-            strokeColor="#3b82f6"
-          />
-        )}
-      </MapView>
+          {routeCoords.length > 0 && (
+            <Polyline
+              coordinates={routeCoords}
+              strokeWidth={5}
+              strokeColor="#3b82f6"
+            />
+          )}
+        </MapView>
+      </View>
 
+      {/* INFO CARD */}
       <View style={[styles.card, { bottom: insets.bottom + 90 }]}>
-        <Text style={styles.banner}>🎉 You are at event</Text>
+        <Text style={styles.banner}>🎉 Inside Event</Text>
 
-        <Text style={styles.gate}>
-          🧠 Gate {bestGate.id} is best
-        </Text>
+        <Text style={styles.gate}>Gate {bestGate?.id}</Text>
 
-        <Text style={styles.confidence}>
-          Confidence: {Math.round(confidence)}%
+        <Text style={styles.info}>
+          🚦 {bestGate?.crowdLevel}% • ⏱ {eta} min
         </Text>
 
         <Text style={styles.info}>
-          Crowd: {bestGate.futureCrowd}%
+          📏 {distance} meters
         </Text>
-
-        <View style={styles.crowdBar}>
-          <View
-            style={[
-              styles.crowdFill,
-              {
-                width: `${bestGate.futureCrowd}%`,
-                backgroundColor:
-                  bestGate.futureCrowd > 70
-                    ? "#ef4444"
-                    : "#22c55e",
-              },
-            ]}
-          />
-        </View>
-
-        <Text style={styles.tip}>
-          👉 Move towards Gate {bestGate.id}
-        </Text>
-
-        <Text style={styles.info}>
-          📍 {Math.round(distanceLeft)} m • ⏱ {eta} min
-        </Text>
-
-        {bestGate.futureCrowd > 80 && (
-          <Text style={styles.warning}>
-            ⚠️ Heavy crowd detected
-          </Text>
-        )}
 
         <TouchableOpacity
           style={styles.btn}

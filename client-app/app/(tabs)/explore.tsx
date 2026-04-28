@@ -16,7 +16,6 @@ import MapView, { Marker } from "react-native-maps";
 import { connectSocket } from "../../services/socket";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-// ================= CONFIG =================
 const API_URL = "https://smartvenue.online";
 
 const EVENT = {
@@ -26,7 +25,7 @@ const EVENT = {
 };
 
 export default function Explore() {
-  const insets = useSafeAreaInsets(); // ✅ FIX
+  const insets = useSafeAreaInsets();
 
   const [zones, setZones] = useState<any[]>([]);
   const [location, setLocation] = useState<any>(null);
@@ -59,7 +58,6 @@ export default function Explore() {
   const getLocation = async () => {
     const { status } =
       await Location.requestForegroundPermissionsAsync();
-
     if (status !== "granted") return;
 
     const loc = await Location.getCurrentPositionAsync({});
@@ -102,13 +100,9 @@ export default function Explore() {
 
   const isEvent = () => {
     if (!location) return false;
-
-    const dist = getDistance({
-      lat: EVENT.lat,
-      lng: EVENT.lng,
-    });
-
-    return dist <= EVENT.radius;
+    return (
+      getDistance({ lat: EVENT.lat, lng: EVENT.lng }) <= EVENT.radius
+    );
   };
 
   const bestGate =
@@ -129,6 +123,12 @@ export default function Explore() {
     );
   };
 
+  const getCrowdColor = (c) => {
+    if (c > 70) return "#ef4444";
+    if (c < 30) return "#22c55e";
+    return "#f59e0b";
+  };
+
   // ================= LOADING =================
   if (loading || !location) {
     return (
@@ -142,9 +142,9 @@ export default function Explore() {
   if (!isEvent()) {
     return (
       <View style={styles.center}>
-        <Text style={styles.emptyTitle}>🚫 No Event Detected</Text>
+        <Text style={styles.emptyTitle}>🚫 No Event Nearby</Text>
         <Text style={styles.emptySub}>
-          Move closer to an event to see gates
+          Move closer to explore gates
         </Text>
       </View>
     );
@@ -156,32 +156,45 @@ export default function Explore() {
       <FlatList
         ListHeaderComponent={
           <>
-            <Text style={styles.header}>🎟 Available Gates</Text>
+            {/* 🔥 HERO CARD */}
+            {bestGate && (
+              <View style={styles.hero}>
+                <Text style={styles.heroTitle}>
+                  🎯 Best Gate: {bestGate.name}
+                </Text>
+                <Text style={styles.heroSub}>
+                  Crowd: {bestGate.crowdLevel}% • ETA:{" "}
+                  {getETA(getDistance(bestGate))} min
+                </Text>
+              </View>
+            )}
 
-            <MapView
-              style={styles.map}
-              showsUserLocation
-              region={{
-                latitude: location.latitude,
-                longitude: location.longitude,
-                latitudeDelta: 0.01,
-                longitudeDelta: 0.01,
-              }}
-            >
-              {zones.map((z, i) => (
-                <Marker
-                  key={i}
-                  coordinate={{ latitude: z.lat, longitude: z.lng }}
-                  title={z.name}
-                />
-              ))}
-            </MapView>
+            {/* 🗺 MAP */}
+            <View style={styles.mapWrapper}>
+              <MapView
+                style={styles.map}
+                showsUserLocation
+                region={{
+                  latitude: location.latitude,
+                  longitude: location.longitude,
+                  latitudeDelta: 0.01,
+                  longitudeDelta: 0.01,
+                }}
+              >
+                {zones.map((z, i) => (
+                  <Marker
+                    key={i}
+                    coordinate={{ latitude: z.lat, longitude: z.lng }}
+                  />
+                ))}
+              </MapView>
+            </View>
           </>
         }
         data={zones}
         keyExtractor={(item, i) => `gate-${i}`}
         contentContainerStyle={{
-          paddingBottom: insets.bottom + 90, // ✅ NO OVERLAP
+          paddingBottom: insets.bottom + 100,
         }}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
@@ -193,13 +206,24 @@ export default function Explore() {
 
           return (
             <View style={[styles.card, isBest && styles.bestCard]}>
-              <Text style={styles.title}>
-                {item.name} {isBest && "⭐ BEST"}
-              </Text>
+              <View style={styles.row}>
+                <Text style={styles.title}>{item.name}</Text>
 
-              <Text style={styles.text}>📏 {dist} m</Text>
-              <Text style={styles.text}>⏱ {eta} min</Text>
-              <Text style={styles.text}>👥 {item.crowdLevel}%</Text>
+                <View
+                  style={[
+                    styles.badge,
+                    { backgroundColor: getCrowdColor(item.crowdLevel) },
+                  ]}
+                >
+                  <Text style={styles.badgeText}>
+                    {item.crowdLevel}%
+                  </Text>
+                </View>
+              </View>
+
+              <Text style={styles.meta}>
+                📏 {dist} m • ⏱ {eta} min
+              </Text>
 
               <TouchableOpacity
                 style={styles.navBtn}
@@ -222,51 +246,78 @@ const styles = StyleSheet.create({
     backgroundColor: "#f1f5f9",
   },
 
-  header: {
-    fontSize: 22,
+  hero: {
+    backgroundColor: "#3b82f6",
+    margin: 15,
+    padding: 18,
+    borderRadius: 18,
+  },
+
+  heroTitle: {
+    color: "white",
+    fontSize: 18,
     fontWeight: "bold",
-    textAlign: "center",
-    color: "#1e293b",
-    marginVertical: 10,
+  },
+
+  heroSub: {
+    color: "#e0f2fe",
+    marginTop: 5,
+  },
+
+  mapWrapper: {
+    marginHorizontal: 15,
+    borderRadius: 18,
+    overflow: "hidden",
   },
 
   map: {
     height: 200,
-    marginHorizontal: 15,
-    borderRadius: 14,
   },
 
   card: {
     backgroundColor: "white",
     marginHorizontal: 15,
-    marginVertical: 6,
-    padding: 15,
-    borderRadius: 14,
-
-    shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
+    marginVertical: 8,
+    padding: 16,
+    borderRadius: 16,
     elevation: 3,
   },
 
   bestCard: {
-    borderColor: "#3b82f6",
     borderWidth: 2,
+    borderColor: "#3b82f6",
+  },
+
+  row: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
 
   title: {
+    fontSize: 17,
+    fontWeight: "bold",
     color: "#1e293b",
-    fontSize: 18,
+  },
+
+  badge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+
+  badgeText: {
+    color: "white",
     fontWeight: "bold",
   },
 
-  text: {
+  meta: {
+    marginTop: 6,
     color: "#64748b",
-    marginTop: 4,
   },
 
   navBtn: {
-    marginTop: 10,
+    marginTop: 12,
     backgroundColor: "#3b82f6",
     padding: 12,
     borderRadius: 10,
@@ -282,13 +333,12 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#f1f5f9",
   },
 
   emptyTitle: {
-    color: "#ef4444",
     fontSize: 20,
     fontWeight: "bold",
+    color: "#ef4444",
   },
 
   emptySub: {
