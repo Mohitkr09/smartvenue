@@ -7,11 +7,13 @@ import {
   RefreshControl,
   ScrollView,
   Alert,
+  SafeAreaView,
 } from "react-native";
 import { useEffect, useState } from "react";
 import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const API_URL = "https://smartvenue.online";
 
@@ -21,8 +23,8 @@ export default function Profile() {
   const [refreshing, setRefreshing] = useState(false);
 
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
-  // ================= FETCH PROFILE =================
   const fetchProfile = async () => {
     try {
       const token = await AsyncStorage.getItem("token");
@@ -34,12 +36,10 @@ export default function Profile() {
 
       const res = await axios.get(`${API_URL}/user/profile`, {
         headers: { Authorization: `Bearer ${token}` },
-        timeout: 10000,
       });
 
       setUser(res?.data?.user || null);
-    } catch (err: any) {
-      console.log("❌ Profile Error:", err?.message);
+    } catch {
       await AsyncStorage.removeItem("token");
       router.replace("/login");
     } finally {
@@ -57,7 +57,6 @@ export default function Profile() {
     fetchProfile();
   };
 
-  // ================= LOGOUT =================
   const logout = async () => {
     Alert.alert("Logout", "Are you sure you want to logout?", [
       { text: "Cancel", style: "cancel" },
@@ -76,136 +75,167 @@ export default function Profile() {
   if (loading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color="#22c55e" />
+        <ActivityIndicator size="large" color="#3b82f6" />
         <Text style={styles.loadingText}>Loading profile...</Text>
       </View>
     );
   }
 
-  // ================= ERROR =================
   if (!user) {
     return (
       <View style={styles.center}>
-        <Text style={{ color: "#ef4444" }}>
-          Failed to load profile
-        </Text>
+        <Text style={{ color: "#ef4444" }}>Failed to load profile</Text>
       </View>
     );
   }
 
   // ================= UI =================
   return (
-    <ScrollView
-      style={styles.container}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-      }
-    >
-      {/* HEADER */}
-      <View style={styles.header}>
-        <Text style={styles.title}>Profile</Text>
-      </View>
+    <SafeAreaView style={styles.safe}>
+      <ScrollView
+        contentContainerStyle={[
+          styles.container,
+          { paddingBottom: insets.bottom + 90 }, // 🔥 fix tab overlap
+        ]}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
+        {/* HEADER */}
+        <View style={styles.header}>
+          <View style={styles.avatarWrapper}>
+            <View style={styles.avatarCircle}>
+              <Text style={styles.avatarText}>
+                {(user?.name?.charAt?.(0) || "U").toUpperCase()}
+              </Text>
+            </View>
+          </View>
 
-      {/* AVATAR */}
-      <View style={styles.avatarWrapper}>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>
-            {(user?.name?.charAt?.(0) || "U").toUpperCase()}
-          </Text>
+          <Text style={styles.title}>{user?.name}</Text>
+          <Text style={styles.subtitle}>{user?.email}</Text>
         </View>
-      </View>
 
-      {/* USER CARD */}
-      <View style={styles.card}>
-        <Text style={styles.label}>Full Name</Text>
-        <Text style={styles.value}>{user?.name}</Text>
+        {/* INFO CARD */}
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Account Info</Text>
 
-        <Text style={styles.label}>Email</Text>
-        <Text style={styles.value}>{user?.email}</Text>
-      </View>
+          <View style={styles.infoBox}>
+            <Text style={styles.label}>Full Name</Text>
+            <Text style={styles.value}>{user?.name}</Text>
+          </View>
 
-      {/* ACTIONS */}
-      <TouchableOpacity style={styles.logoutBtn} onPress={logout}>
-        <Text style={styles.logoutText}>Logout</Text>
-      </TouchableOpacity>
-    </ScrollView>
+          <View style={styles.infoBox}>
+            <Text style={styles.label}>Email Address</Text>
+            <Text style={styles.value}>{user?.email}</Text>
+          </View>
+        </View>
+
+        {/* ACTION CARD */}
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Actions</Text>
+
+          <TouchableOpacity style={styles.logoutBtn} onPress={logout}>
+            <Text style={styles.logoutText}>Logout</Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 // ================= STYLES =================
 const styles = StyleSheet.create({
-  container: {
+  safe: {
     flex: 1,
-    backgroundColor: "#020617",
+    backgroundColor: "#f1f5f9",
+  },
+
+  container: {
+    paddingHorizontal: 20,
+    paddingTop: 20,
   },
 
   header: {
-    paddingTop: 60,
-    paddingBottom: 30,
     alignItems: "center",
-  },
-
-  title: {
-    color: "white",
-    fontSize: 28,
-    fontWeight: "bold",
+    marginBottom: 25,
   },
 
   avatarWrapper: {
-    alignItems: "center",
-    marginTop: -30,
-    marginBottom: 20,
+    shadowColor: "#3b82f6",
+    shadowOpacity: 0.3,
+    shadowRadius: 15,
+    elevation: 8,
   },
 
-  avatar: {
-    width: 110,
-    height: 110,
-    borderRadius: 60,
-    backgroundColor: "#22c55e",
+  avatarCircle: {
+    width: 130,
+    height: 130,
+    borderRadius: 100,
+    backgroundColor: "#3b82f6",
     justifyContent: "center",
     alignItems: "center",
-
-    // glow effect
-    shadowColor: "#22c55e",
-    shadowOpacity: 0.6,
-    shadowRadius: 20,
-    elevation: 10,
   },
 
   avatarText: {
     color: "white",
-    fontSize: 36,
+    fontSize: 44,
     fontWeight: "bold",
   },
 
-  card: {
-    marginHorizontal: 20,
-    padding: 20,
-    borderRadius: 20,
+  title: {
+    fontSize: 22,
+    fontWeight: "bold",
+    color: "#1e293b",
+    marginTop: 10,
+  },
 
-    backgroundColor: "rgba(255,255,255,0.05)", // glassmorphism
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
+  subtitle: {
+    color: "#64748b",
+    marginTop: 4,
+  },
+
+  card: {
+    backgroundColor: "white",
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 15,
+
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 5,
+  },
+
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: "bold",
+    marginBottom: 10,
+    color: "#1e293b",
+  },
+
+  infoBox: {
+    marginBottom: 10,
   },
 
   label: {
-    color: "#94a3b8",
-    marginTop: 10,
-    fontSize: 13,
+    color: "#64748b",
+    fontSize: 12,
   },
 
   value: {
-    color: "white",
-    fontSize: 18,
+    color: "#1e293b",
+    fontSize: 16,
     fontWeight: "600",
+    marginTop: 2,
   },
 
   logoutBtn: {
-    margin: 20,
     backgroundColor: "#ef4444",
-    padding: 16,
-    borderRadius: 14,
+    padding: 14,
+    borderRadius: 12,
     alignItems: "center",
+    marginTop: 10,
   },
 
   logoutText: {
@@ -218,11 +248,11 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#020617",
+    backgroundColor: "#f1f5f9",
   },
 
   loadingText: {
-    color: "#94a3b8",
+    color: "#64748b",
     marginTop: 10,
   },
 });

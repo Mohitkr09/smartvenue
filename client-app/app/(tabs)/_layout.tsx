@@ -1,37 +1,38 @@
 import { Tabs } from "expo-router";
 import React from "react";
 import { Ionicons } from "@expo/vector-icons";
-import { View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export default function TabLayout() {
-  const insets = useSafeAreaInsets(); // 🔥 IMPORTANT
+  const insets = useSafeAreaInsets();
 
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
 
-        // 🎨 TAB BAR STYLE (FIXED)
+        // ✅ INSTAGRAM STYLE TAB BAR
         tabBarStyle: {
-          backgroundColor: "#020617",
-          borderTopWidth: 0,
-          height: 65 + insets.bottom, // 🔥 ADAPTIVE HEIGHT
-          paddingBottom: insets.bottom + 5, // 🔥 PUSH UP ICONS
-          paddingTop: 5,
+          backgroundColor: "#ffffff",
+          borderTopWidth: 0.5,
+          borderTopColor: "#e2e8f0",
+
+          height: 60 + insets.bottom,
+          paddingBottom: insets.bottom,
+
+          elevation: 8,
         },
 
-        tabBarActiveTintColor: "#22c55e",
-        tabBarInactiveTintColor: "#64748b",
+        tabBarActiveTintColor: "#1e293b", // dark active
+        tabBarInactiveTintColor: "#94a3b8",
 
         tabBarLabelStyle: {
-          fontSize: 12,
-          marginTop: 2,
+          fontSize: 11,
+          marginBottom: 3,
         },
 
         tabBarItemStyle: {
-          borderRadius: 10,
-          marginHorizontal: 5,
+          paddingVertical: 5,
         },
       }}
     >
@@ -41,15 +42,11 @@ export default function TabLayout() {
         options={{
           title: "Home",
           tabBarIcon: ({ color, focused }) => (
-            <View
-              style={{
-                backgroundColor: focused ? "#1e293b" : "transparent",
-                padding: 8,
-                borderRadius: 10,
-              }}
-            >
-              <Ionicons name="home" size={22} color={color} />
-            </View>
+            <Ionicons
+              name={focused ? "home" : "home-outline"}
+              size={24}
+              color={color}
+            />
           ),
         }}
       />
@@ -60,15 +57,11 @@ export default function TabLayout() {
         options={{
           title: "Explore",
           tabBarIcon: ({ color, focused }) => (
-            <View
-              style={{
-                backgroundColor: focused ? "#1e293b" : "transparent",
-                padding: 8,
-                borderRadius: 10,
-              }}
-            >
-              <Ionicons name="compass" size={22} color={color} />
-            </View>
+            <Ionicons
+              name={focused ? "compass" : "compass-outline"}
+              size={24}
+              color={color}
+            />
           ),
         }}
       />
@@ -79,15 +72,11 @@ export default function TabLayout() {
         options={{
           title: "Alerts",
           tabBarIcon: ({ color, focused }) => (
-            <View
-              style={{
-                backgroundColor: focused ? "#1e293b" : "transparent",
-                padding: 8,
-                borderRadius: 10,
-              }}
-            >
-              <Ionicons name="notifications" size={22} color={color} />
-            </View>
+            <Ionicons
+              name={focused ? "notifications" : "notifications-outline"}
+              size={24}
+              color={color}
+            />
           ),
         }}
       />
@@ -98,15 +87,11 @@ export default function TabLayout() {
         options={{
           title: "Profile",
           tabBarIcon: ({ color, focused }) => (
-            <View
-              style={{
-                backgroundColor: focused ? "#1e293b" : "transparent",
-                padding: 8,
-                borderRadius: 10,
-              }}
-            >
-              <Ionicons name="person" size={22} color={color} />
-            </View>
+            <Ionicons
+              name={focused ? "person" : "person-outline"}
+              size={24}
+              color={color}
+            />
           ),
         }}
       />

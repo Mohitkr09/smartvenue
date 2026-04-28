@@ -8,15 +8,13 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Image,
 } from "react-native";
 import { useState } from "react";
 import axios from "axios";
 import { useRouter } from "expo-router";
 
-// ==============================
-// 🌐 API CONFIG (FINAL)
-// ==============================
-const API_URL = "https://smartvenue.online"; // ✅ ONLY HTTPS
+const API_URL = "https://smartvenue.online";
 
 export default function Register() {
   const router = useRouter();
@@ -26,149 +24,141 @@ export default function Register() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // ==============================
-  // 📝 REGISTER FUNCTION
-  // ==============================
   const register = async () => {
-    if (!name.trim() || !email.trim() || !password.trim()) {
-      return Alert.alert("Error", "All fields are required");
-    }
-
-    if (!email.includes("@")) {
-      return Alert.alert("Error", "Invalid email address");
-    }
-
-    if (password.length < 6) {
-      return Alert.alert("Error", "Password must be at least 6 characters");
+    if (!name || !email || !password) {
+      return Alert.alert("Error", "Fill all fields");
     }
 
     try {
       setLoading(true);
 
-      await axios.post(
-        `${API_URL}/auth/register`,
-        {
-          name,
-          email,
-          password,
-        },
-        {
-          timeout: 10000,
-        }
-      );
-
-      Alert.alert("Success", "Account created successfully!");
+      await axios.post(`${API_URL}/auth/register`, {
+        name,
+        email,
+        password,
+      });
 
       router.replace("/login");
-    } catch (err: any) {
-      console.log("❌ Register Error:", err?.message);
-
-      if (err.response?.data?.msg) {
-        Alert.alert("Error", err.response.data.msg);
-      } else if (err.code === "ECONNABORTED") {
-        Alert.alert("Error", "Request timeout. Try again.");
-      } else {
-        Alert.alert("Error", "Registration failed. Try again.");
-      }
+    } catch {
+      Alert.alert("Error", "Registration failed");
     } finally {
       setLoading(false);
     }
   };
 
-  // ==============================
-  // UI
-  // ==============================
   return (
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      {/* TITLE */}
-      <Text style={styles.title}>Create Account 🚀</Text>
+      <View style={styles.card}>
+        {/* LOGO */}
+        <View style={styles.logoCircle}>
+          <Image
+            source={{
+              uri: "https://cdn-icons-png.flaticon.com/512/1946/1946488.png",
+            }}
+            style={styles.logo}
+          />
+        </View>
 
-      {/* NAME */}
-      <TextInput
-        placeholder="Full Name"
-        placeholderTextColor="#94a3b8"
-        style={styles.input}
-        value={name}
-        onChangeText={setName}
-      />
-
-      {/* EMAIL */}
-      <TextInput
-        placeholder="Email"
-        placeholderTextColor="#94a3b8"
-        style={styles.input}
-        keyboardType="email-address"
-        autoCapitalize="none"
-        value={email}
-        onChangeText={setEmail}
-      />
-
-      {/* PASSWORD */}
-      <TextInput
-        placeholder="Password"
-        placeholderTextColor="#94a3b8"
-        secureTextEntry
-        style={styles.input}
-        value={password}
-        onChangeText={setPassword}
-      />
-
-      {/* BUTTON */}
-      <TouchableOpacity
-        style={[styles.button, loading && { opacity: 0.6 }]}
-        onPress={register}
-        disabled={loading}
-      >
-        {loading ? (
-          <ActivityIndicator color="white" />
-        ) : (
-          <Text style={styles.buttonText}>Register</Text>
-        )}
-      </TouchableOpacity>
-
-      {/* LOGIN LINK */}
-      <TouchableOpacity onPress={() => router.replace("/login")}>
-        <Text style={styles.link}>
-          Already have an account? Login
+        <Text style={styles.title}>Create Account</Text>
+        <Text style={styles.subtitle}>
+          Join SmartVenue
         </Text>
-      </TouchableOpacity>
+
+        <TextInput
+          placeholder="Full Name"
+          style={styles.input}
+          value={name}
+          onChangeText={setName}
+        />
+
+        <TextInput
+          placeholder="Email"
+          style={styles.input}
+          value={email}
+          onChangeText={setEmail}
+        />
+
+        <TextInput
+          placeholder="Password"
+          secureTextEntry
+          style={styles.input}
+          value={password}
+          onChangeText={setPassword}
+        />
+
+        <TouchableOpacity style={styles.button} onPress={register}>
+          {loading ? (
+            <ActivityIndicator color="white" />
+          ) : (
+            <Text style={styles.buttonText}>Get Started</Text>
+          )}
+        </TouchableOpacity>
+
+        <TouchableOpacity onPress={() => router.replace("/login")}>
+          <Text style={styles.link}>
+            Already have an account? Sign in
+          </Text>
+        </TouchableOpacity>
+      </View>
     </KeyboardAvoidingView>
   );
 }
 
-// ==============================
-// 🎨 STYLES
-// ==============================
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#0f172a",
+    backgroundColor: "#f1f5f9",
     justifyContent: "center",
-    padding: 20,
+    alignItems: "center",
+  },
+
+  card: {
+    width: "85%",
+    alignItems: "center",
+  },
+
+  logoCircle: {
+    width: 140,
+    height: 140,
+    borderRadius: 100,
+    backgroundColor: "#3b82f6",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 20,
+  },
+
+  logo: {
+    width: 70,
+    height: 70,
+    tintColor: "white",
   },
 
   title: {
-    color: "white",
-    fontSize: 28,
+    fontSize: 24,
     fontWeight: "bold",
-    marginBottom: 25,
-    textAlign: "center",
+    color: "#1e293b",
+  },
+
+  subtitle: {
+    color: "#64748b",
+    marginBottom: 20,
   },
 
   input: {
-    backgroundColor: "#1e293b",
-    color: "white",
+    width: "100%",
+    backgroundColor: "white",
     padding: 14,
     borderRadius: 12,
-    marginBottom: 12,
+    marginBottom: 10,
   },
 
   button: {
-    backgroundColor: "#22c55e",
-    padding: 16,
+    width: "100%",
+    backgroundColor: "#3b82f6",
+    padding: 15,
     borderRadius: 12,
     marginTop: 10,
   },
@@ -177,13 +167,10 @@ const styles = StyleSheet.create({
     color: "white",
     textAlign: "center",
     fontWeight: "bold",
-    fontSize: 16,
   },
 
   link: {
-    color: "#38bdf8",
-    textAlign: "center",
-    marginTop: 18,
-    fontSize: 14,
+    marginTop: 15,
+    color: "#3b82f6",
   },
 });
