@@ -1,22 +1,25 @@
 {
   "expo": {
-    "name": "client-app",
+    "name": "SmartVenue",
     "slug": "client-app",
     "version": "1.0.0",
     "orientation": "portrait",
+
     "icon": "./assets/images/smartvenue_icon.png",
     "scheme": "clientapp",
     "userInterfaceStyle": "automatic",
 
     "ios": {
       "supportsTablet": true,
+      "bundleIdentifier": "com.mohitkr.clientapp",
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "This app uses your location to guide you to the best gate during events."
+        "NSLocationWhenInUseUsageDescription": "SmartVenue uses your location to guide you to the best gate during events."
       }
     },
 
     "android": {
       "package": "com.mohitkr.clientapp",
+
       "permissions": [
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
@@ -24,9 +27,8 @@
       ],
 
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png"
+        "foregroundImage": "./assets/images/smartvenue_icon.png",
+        "backgroundColor": "#3b82f6"
       },
 
       "edgeToEdgeEnabled": true
@@ -34,7 +36,7 @@
 
     "web": {
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/smartvenue_icon.png"
     },
 
     "plugins": [
@@ -43,7 +45,7 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Allow location access for navigation and event guidance"
+          "locationWhenInUsePermission": "Allow location access for smart navigation and event guidance"
         }
       ],
 
@@ -52,7 +54,7 @@
         {
           "image": "./assets/images/splash-icon.png",
           "resizeMode": "contain",
-          "backgroundColor": "#ffffff"
+          "backgroundColor": "#3b82f6"
         }
       ]
     ],
