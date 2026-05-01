@@ -41,12 +41,14 @@
 
     "plugins": [
       "expo-router",
+
       [
         "expo-location",
         {
           "locationWhenInUsePermission": "Allow location access for smart navigation and event guidance"
         }
       ],
+
       [
         "expo-splash-screen",
         {
