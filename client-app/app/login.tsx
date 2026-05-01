@@ -26,7 +26,11 @@ export default function Login() {
 
   const login = async () => {
     if (!email || !password) {
-      return Alert.alert("Error", "Fill all fields");
+      return Alert.alert("Error", "Please fill all fields");
+    }
+
+    if (!email.includes("@")) {
+      return Alert.alert("Error", "Enter a valid email");
     }
 
     try {
@@ -40,8 +44,11 @@ export default function Login() {
       await AsyncStorage.setItem("token", res.data.token);
 
       router.replace("/");
-    } catch {
-      Alert.alert("Error", "Login failed");
+    } catch (err: any) {
+      Alert.alert(
+        "Login Failed",
+        err?.response?.data?.message || "Invalid credentials"
+      );
     } finally {
       setLoading(false);
     }
@@ -52,6 +59,9 @@ export default function Login() {
       style={styles.container}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
+      {/* BACKGROUND */}
+      <View style={styles.backgroundTop} />
+
       <View style={styles.card}>
         {/* LOGO */}
         <View style={styles.logoCircle}>
@@ -64,21 +74,24 @@ export default function Login() {
         </View>
 
         {/* TITLE */}
-        <Text style={styles.title}>Welcome Back</Text>
+        <Text style={styles.title}>Welcome Back 👋</Text>
         <Text style={styles.subtitle}>
-          Login to continue
+          Login to continue your journey
         </Text>
 
         {/* INPUTS */}
         <TextInput
           placeholder="Email"
+          placeholderTextColor="#94a3b8"
           style={styles.input}
           value={email}
           onChangeText={setEmail}
+          keyboardType="email-address"
         />
 
         <TextInput
           placeholder="Password"
+          placeholderTextColor="#94a3b8"
           secureTextEntry
           style={styles.input}
           value={password}
@@ -86,7 +99,11 @@ export default function Login() {
         />
 
         {/* BUTTON */}
-        <TouchableOpacity style={styles.button} onPress={login}>
+        <TouchableOpacity
+          style={[styles.button, loading && { opacity: 0.7 }]}
+          onPress={login}
+          disabled={loading}
+        >
           {loading ? (
             <ActivityIndicator color="white" />
           ) : (
@@ -97,7 +114,7 @@ export default function Login() {
         {/* LINK */}
         <TouchableOpacity onPress={() => router.replace("/register")}>
           <Text style={styles.link}>
-            Don't have an account? Sign up
+            Don't have an account? <Text style={styles.linkBold}>Sign up</Text>
           </Text>
         </TouchableOpacity>
       </View>
@@ -105,6 +122,7 @@ export default function Login() {
   );
 }
 
+// ================= STYLES =================
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -113,29 +131,47 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
 
+  backgroundTop: {
+    position: "absolute",
+    top: 0,
+    width: "100%",
+    height: "40%",
+    backgroundColor: "#3b82f6",
+    borderBottomLeftRadius: 40,
+    borderBottomRightRadius: 40,
+  },
+
   card: {
     width: "85%",
+    backgroundColor: "rgba(255,255,255,0.95)",
+    borderRadius: 24,
+    padding: 20,
     alignItems: "center",
+
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 10,
   },
 
   logoCircle: {
-    width: 140,
-    height: 140,
-    borderRadius: 100,
+    width: 110,
+    height: 110,
+    borderRadius: 60,
     backgroundColor: "#3b82f6",
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 20,
+    marginBottom: 15,
   },
 
   logo: {
-    width: 70,
-    height: 70,
+    width: 55,
+    height: 55,
     tintColor: "white",
   },
 
   title: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: "bold",
     color: "#1e293b",
   },
@@ -147,17 +183,19 @@ const styles = StyleSheet.create({
 
   input: {
     width: "100%",
-    backgroundColor: "white",
+    backgroundColor: "#f8fafc",
     padding: 14,
-    borderRadius: 12,
-    marginBottom: 10,
+    borderRadius: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
   },
 
   button: {
     width: "100%",
     backgroundColor: "#3b82f6",
     padding: 15,
-    borderRadius: 12,
+    borderRadius: 14,
     marginTop: 10,
   },
 
@@ -165,10 +203,16 @@ const styles = StyleSheet.create({
     color: "white",
     textAlign: "center",
     fontWeight: "bold",
+    fontSize: 16,
   },
 
   link: {
     marginTop: 15,
+    color: "#64748b",
+  },
+
+  linkBold: {
     color: "#3b82f6",
+    fontWeight: "bold",
   },
 });

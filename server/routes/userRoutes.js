@@ -7,8 +7,12 @@ const {
   updateProfile,
 } = require("../controllers/userController");
 
-// 🔐 Protected routes
+// ================= ROUTES =================
+
+// 🔐 Get user profile
 router.get("/profile", auth, getProfile);
+
+// 🔐 Update profile
 router.put("/profile", auth, updateProfile);
 
 module.exports = router;

@@ -58,7 +58,7 @@ export default function Profile() {
   };
 
   const logout = async () => {
-    Alert.alert("Logout", "Are you sure you want to logout?", [
+    Alert.alert("Logout", "Do you really want to logout?", [
       { text: "Cancel", style: "cancel" },
       {
         text: "Logout",
@@ -89,51 +89,59 @@ export default function Profile() {
     );
   }
 
-  // ================= UI =================
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.container}>
+      {/* 🔵 TOP BACKGROUND (LIKE LOGIN) */}
+      <View style={styles.backgroundTop} />
+
       <ScrollView
-        contentContainerStyle={[
-          styles.container,
-          { paddingBottom: insets.bottom + 90 }, // 🔥 fix tab overlap
-        ]}
+        contentContainerStyle={{
+          alignItems: "center",
+          paddingBottom: insets.bottom + 100,
+        }}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
-        {/* HEADER */}
-        <View style={styles.header}>
-          <View style={styles.avatarWrapper}>
-            <View style={styles.avatarCircle}>
-              <Text style={styles.avatarText}>
-                {(user?.name?.charAt?.(0) || "U").toUpperCase()}
-              </Text>
+        {/* 🤍 MAIN CARD */}
+        <View style={styles.card}>
+          {/* AVATAR */}
+          <View style={styles.logoCircle}>
+            <Text style={styles.logoText}>
+              {(user?.name?.charAt?.(0) || "U").toUpperCase()}
+            </Text>
+          </View>
+
+          {/* TITLE */}
+          <Text style={styles.title}>{user.name}</Text>
+          <Text style={styles.subtitle}>{user.email}</Text>
+
+          {/* STATS */}
+          <View style={styles.statsRow}>
+            <View style={styles.statBox}>
+              <Text style={styles.statValue}>12</Text>
+              <Text style={styles.statLabel}>Events</Text>
+            </View>
+
+            <View style={styles.statBox}>
+              <Text style={styles.statValue}>5</Text>
+              <Text style={styles.statLabel}>Visits</Text>
+            </View>
+
+            <View style={styles.statBox}>
+              <Text style={styles.statValue}>⭐ 4.8</Text>
+              <Text style={styles.statLabel}>Rating</Text>
             </View>
           </View>
 
-          <Text style={styles.title}>{user?.name}</Text>
-          <Text style={styles.subtitle}>{user?.email}</Text>
-        </View>
-
-        {/* INFO CARD */}
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Account Info</Text>
-
-          <View style={styles.infoBox}>
-            <Text style={styles.label}>Full Name</Text>
-            <Text style={styles.value}>{user?.name}</Text>
-          </View>
-
-          <View style={styles.infoBox}>
-            <Text style={styles.label}>Email Address</Text>
-            <Text style={styles.value}>{user?.email}</Text>
-          </View>
-        </View>
-
-        {/* ACTION CARD */}
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Actions</Text>
+          {/* BUTTONS */}
+          <TouchableOpacity
+            style={styles.button}
+            onPress={() => router.push("/edit-profile")}
+          >
+            <Text style={styles.buttonText}>Edit Profile</Text>
+          </TouchableOpacity>
 
           <TouchableOpacity style={styles.logoutBtn} onPress={logout}>
             <Text style={styles.logoutText}>Logout</Text>
@@ -146,40 +154,48 @@ export default function Profile() {
 
 // ================= STYLES =================
 const styles = StyleSheet.create({
-  safe: {
+  container: {
     flex: 1,
     backgroundColor: "#f1f5f9",
   },
 
-  container: {
-    paddingHorizontal: 20,
-    paddingTop: 20,
+  backgroundTop: {
+    position: "absolute",
+    top: 0,
+    width: "100%",
+    height: "40%",
+    backgroundColor: "#3b82f6",
+    borderBottomLeftRadius: 40,
+    borderBottomRightRadius: 40,
   },
 
-  header: {
+  card: {
+    width: "85%",
+    marginTop: 90,
+    backgroundColor: "rgba(255,255,255,0.95)",
+    borderRadius: 24,
+    padding: 20,
     alignItems: "center",
-    marginBottom: 25,
+
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 10,
   },
 
-  avatarWrapper: {
-    shadowColor: "#3b82f6",
-    shadowOpacity: 0.3,
-    shadowRadius: 15,
-    elevation: 8,
-  },
-
-  avatarCircle: {
-    width: 130,
-    height: 130,
-    borderRadius: 100,
+  logoCircle: {
+    width: 110,
+    height: 110,
+    borderRadius: 60,
     backgroundColor: "#3b82f6",
     justifyContent: "center",
     alignItems: "center",
+    marginBottom: 15,
   },
 
-  avatarText: {
+  logoText: {
     color: "white",
-    fontSize: 44,
+    fontSize: 40,
     fontWeight: "bold",
   },
 
@@ -187,72 +203,73 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: "bold",
     color: "#1e293b",
-    marginTop: 10,
   },
 
   subtitle: {
     color: "#64748b",
-    marginTop: 4,
+    marginBottom: 20,
   },
 
-  card: {
-    backgroundColor: "white",
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 15,
-
-    shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    elevation: 5,
+  statsRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    width: "100%",
+    marginBottom: 20,
   },
 
-  sectionTitle: {
-    fontSize: 16,
+  statBox: {
+    backgroundColor: "#f8fafc",
+    padding: 12,
+    borderRadius: 12,
+    alignItems: "center",
+    width: "30%",
+  },
+
+  statValue: {
     fontWeight: "bold",
-    marginBottom: 10,
-    color: "#1e293b",
+    fontSize: 16,
   },
 
-  infoBox: {
-    marginBottom: 10,
-  },
-
-  label: {
+  statLabel: {
     color: "#64748b",
     fontSize: 12,
   },
 
-  value: {
-    color: "#1e293b",
-    fontSize: 16,
-    fontWeight: "600",
-    marginTop: 2,
+  button: {
+    width: "100%",
+    backgroundColor: "#3b82f6",
+    padding: 14,
+    borderRadius: 14,
+    marginBottom: 10,
+  },
+
+  buttonText: {
+    color: "white",
+    textAlign: "center",
+    fontWeight: "bold",
   },
 
   logoutBtn: {
+    width: "100%",
     backgroundColor: "#ef4444",
     padding: 14,
-    borderRadius: 12,
-    alignItems: "center",
-    marginTop: 10,
+    borderRadius: 14,
   },
 
   logoutText: {
     color: "white",
+    textAlign: "center",
     fontWeight: "bold",
-    fontSize: 16,
   },
 
   center: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#f1f5f9",
   },
 
   loadingText: {
-    color: "#64748b",
     marginTop: 10,
+    color: "#64748b",
   },
 });

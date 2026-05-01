@@ -21,8 +21,8 @@ const app = express();
 // =======================
 // 🔧 MIDDLEWARE
 // =======================
-app.use(cors({ origin: "*" }));
-app.use(express.json());
+app.use(cors());
+app.use(express.json({ limit: "2mb" }));
 app.use(morgan("dev"));
 
 // =======================
@@ -32,37 +32,32 @@ app.use("/auth", authRoutes);
 app.use("/user", userRoutes);
 
 // =======================
-// 🤖 AI CALL FUNCTION (IMPROVED)
+// 🤖 AI FUNCTION
 // =======================
 const getPrediction = async (zones) => {
   try {
-    console.log("📤 Sending to AI:", zones);
-
     const res = await axios.post(
       process.env.AI_URL || "http://127.0.0.1:7000/predict-zones",
       { zones },
-      { timeout: 3000 }
+      { timeout: 2000 }
     );
 
-    console.log("✅ AI Response:", res.data);
-
-    return res.data.data;
-
+    return res.data?.data || zones;
   } catch (err) {
-    console.log("❌ AI ERROR:", err.message);
-    return zones; // fallback
+    console.log("⚠️ AI fallback:", err.message);
+    return zones;
   }
 };
 
 // =======================
-// 🧭 GOOGLE ROUTE (SECURE)
+// 🧭 ROUTE API
 // =======================
 app.post("/route", async (req, res) => {
   try {
     const { origin, destination } = req.body;
 
-    if (!origin || !destination) {
-      return res.status(400).json({ error: "Missing origin/destination" });
+    if (!origin?.lat || !destination?.lat) {
+      return res.status(400).json({ error: "Invalid input" });
     }
 
     const response = await axios.get(
@@ -78,7 +73,6 @@ app.post("/route", async (req, res) => {
     );
 
     res.json(response.data);
-
   } catch (err) {
     console.log("❌ Route error:", err.message);
     res.status(500).json({ error: "Route failed" });
@@ -86,49 +80,39 @@ app.post("/route", async (req, res) => {
 });
 
 // =======================
-// 📡 IoT DATA PIPELINE (OPTIMIZED)
+// 📡 IoT DATA
 // =======================
 app.post("/iot-data", async (req, res) => {
   try {
-    const data = req.body;
+    const { gate_id, crowdLevel, waitTime } = req.body;
 
-    if (!data || !data.gate_id) {
-      return res.status(400).json({ error: "Invalid IoT data" });
+    if (!gate_id) {
+      return res.status(400).json({ error: "gate_id required" });
     }
-
-    console.log("📡 IoT Data:", data);
 
     const now = new Date();
 
     const enriched = {
-      device_id: data.device_id || "unknown",
-      gate_id: data.gate_id,
-      crowdLevel: Number(data.crowdLevel || 0),
-      waitTime: Number(data.waitTime || 1),
+      device_id: req.body.device_id || "unknown",
+      gate_id,
+      crowdLevel: Number(crowdLevel || 0),
+      waitTime: Number(waitTime || 1),
       hour: now.getHours(),
       day: now.getDay(),
       timestamp: now,
     };
 
-    // ======================
-    // 💾 SAVE TO DB
-    // ======================
     await ZoneLog.create(enriched);
 
-    // ======================
-    // 🔄 UPDATE ZONE
-    // ======================
     await Zone.findOneAndUpdate(
-      { name: `Gate ${enriched.gate_id}` },
+      { name: `Gate ${gate_id}` },
       {
         crowdLevel: enriched.crowdLevel,
         waitTime: enriched.waitTime,
-      }
+      },
+      { new: true }
     );
 
-    // ======================
-    // 🧠 GET LATEST (ONLY 4)
-    // ======================
     const latest = await ZoneLog.find()
       .sort({ timestamp: -1 })
       .limit(4)
@@ -142,38 +126,19 @@ app.post("/iot-data", async (req, res) => {
       day: z.day,
     }));
 
-    // ======================
-    // 🤖 AI CALL
-    // ======================
     const prediction = await getPrediction(zones);
 
-    console.log("🤖 Final AI Output:", prediction);
-
-    // ======================
-    // 📡 SOCKET EMIT
-    // ======================
     io.emit("zoneUpdate", prediction);
 
     res.json({ success: true });
-
   } catch (err) {
-    console.log("❌ IoT Error:", err.message);
-    res.status(500).json({ error: err.message });
+    console.log("❌ IoT error:", err.message);
+    res.status(500).json({ error: "Server error" });
   }
 });
 
 // =======================
-// 🌐 HEALTH
-// =======================
-app.get("/", (req, res) => {
-  res.json({
-    status: "running ✅",
-    ai: process.env.AI_URL || "local",
-  });
-});
-
-// =======================
-// 📍 ZONES API
+// 📍 ZONES
 // =======================
 app.get("/zones", async (req, res) => {
   try {
@@ -185,15 +150,28 @@ app.get("/zones", async (req, res) => {
 });
 
 // =======================
-// 🔌 DATABASE
+// ❤️ HEALTH
+// =======================
+app.get("/", (req, res) => {
+  res.json({
+    status: "running",
+    ai: process.env.AI_URL || "local",
+  });
+});
+
+// =======================
+// 🧠 DB
 // =======================
 async function connectDB() {
   try {
-    await mongoose.connect(process.env.MONGO_URI);
-    console.log("✅ MongoDB Connected");
+    await mongoose.connect(process.env.MONGO_URI, {
+      autoIndex: true,
+    });
+
+    console.log("✅ MongoDB connected");
     await seedZones();
   } catch (err) {
-    console.error("❌ Mongo Error:", err.message);
+    console.error("❌ DB error:", err.message);
     process.exit(1);
   }
 }
@@ -209,19 +187,15 @@ async function seedZones() {
     { name: "Gate D", lat: 25.4500, lng: 78.5700 },
   ];
 
-  for (let z of zones) {
+  for (const z of zones) {
     await Zone.findOneAndUpdate(
       { name: z.name },
-      {
-        ...z,
-        crowdLevel: 0,
-        waitTime: 0,
-      },
+      { ...z, crowdLevel: 0, waitTime: 0 },
       { upsert: true }
     );
   }
 
-  console.log("✅ Zones Seeded");
+  console.log("✅ Zones ready");
 }
 
 // =======================
@@ -234,20 +208,22 @@ const io = new Server(server, {
 });
 
 io.on("connection", (socket) => {
-  console.log("🟢 Client connected:", socket.id);
+  console.log("🟢 Connected:", socket.id);
+
+  socket.on("disconnect", () => {
+    console.log("🔴 Disconnected:", socket.id);
+  });
 });
 
 // =======================
-// 🚀 START SERVER
+// 🚀 START
 // =======================
 const PORT = process.env.PORT || 5000;
 
-async function startServer() {
+(async () => {
   await connectDB();
 
   server.listen(PORT, "0.0.0.0", () => {
-    console.log(`🚀 Running on ${PORT}`);
+    console.log(`🚀 Server running on ${PORT}`);
   });
-}
-
-startServer();
+})();

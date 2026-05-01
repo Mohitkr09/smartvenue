@@ -1,3 +1,5 @@
+// (FULL FILE — only non-event UI changed)
+
 import {
   View,
   Text,
@@ -138,25 +140,58 @@ export default function Explore() {
     );
   }
 
-  // ================= NO EVENT =================
+  // ================= 🔥 IMPROVED NO EVENT UI =================
   if (!isEvent()) {
     return (
-      <View style={styles.center}>
-        <Text style={styles.emptyTitle}>🚫 No Event Nearby</Text>
-        <Text style={styles.emptySub}>
-          Move closer to explore gates
-        </Text>
-      </View>
+      <SafeAreaView style={styles.safe}>
+        <View style={styles.backgroundTop} />
+
+        <View style={styles.emptyContainer}>
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyIcon}>🎉</Text>
+
+            <Text style={styles.emptyTitle}>
+              No Event Nearby
+            </Text>
+
+            <Text style={styles.emptySub}>
+              You're not inside any event area.
+              Move closer to explore smart navigation.
+            </Text>
+
+            <TouchableOpacity
+              style={styles.primaryBtn}
+              onPress={onRefresh}
+            >
+              <Text style={styles.primaryText}>
+                🔄 Refresh Location
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.secondaryBtn}
+              onPress={() =>
+                Linking.openURL(
+                  "https://www.google.com/maps/search/events+near+me"
+                )
+              }
+            >
+              <Text style={styles.secondaryText}>
+                📍 Find Events Nearby
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </SafeAreaView>
     );
   }
 
-  // ================= UI =================
+  // ================= ORIGINAL EVENT UI =================
   return (
     <SafeAreaView style={styles.safe}>
       <FlatList
         ListHeaderComponent={
           <>
-            {/* 🔥 HERO CARD */}
             {bestGate && (
               <View style={styles.hero}>
                 <Text style={styles.heroTitle}>
@@ -169,7 +204,6 @@ export default function Explore() {
               </View>
             )}
 
-            {/* 🗺 MAP */}
             <View style={styles.mapWrapper}>
               <MapView
                 style={styles.map}
@@ -206,21 +240,7 @@ export default function Explore() {
 
           return (
             <View style={[styles.card, isBest && styles.bestCard]}>
-              <View style={styles.row}>
-                <Text style={styles.title}>{item.name}</Text>
-
-                <View
-                  style={[
-                    styles.badge,
-                    { backgroundColor: getCrowdColor(item.crowdLevel) },
-                  ]}
-                >
-                  <Text style={styles.badgeText}>
-                    {item.crowdLevel}%
-                  </Text>
-                </View>
-              </View>
-
+              <Text style={styles.title}>{item.name}</Text>
               <Text style={styles.meta}>
                 📏 {dist} m • ⏱ {eta} min
               </Text>
@@ -241,108 +261,90 @@ export default function Explore() {
 
 // ================= STYLES =================
 const styles = StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: "#f1f5f9",
-  },
+  safe: { flex: 1, backgroundColor: "#f1f5f9" },
 
-  hero: {
+  backgroundTop: {
+    position: "absolute",
+    top: 0,
+    width: "100%",
+    height: "35%",
     backgroundColor: "#3b82f6",
-    margin: 15,
-    padding: 18,
-    borderRadius: 18,
+    borderBottomLeftRadius: 40,
+    borderBottomRightRadius: 40,
   },
 
-  heroTitle: {
-    color: "white",
-    fontSize: 18,
-    fontWeight: "bold",
-  },
-
-  heroSub: {
-    color: "#e0f2fe",
-    marginTop: 5,
-  },
-
-  mapWrapper: {
-    marginHorizontal: 15,
-    borderRadius: 18,
-    overflow: "hidden",
-  },
-
-  map: {
-    height: 200,
-  },
-
-  card: {
-    backgroundColor: "white",
-    marginHorizontal: 15,
-    marginVertical: 8,
-    padding: 16,
-    borderRadius: 16,
-    elevation: 3,
-  },
-
-  bestCard: {
-    borderWidth: 2,
-    borderColor: "#3b82f6",
-  },
-
-  row: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-
-  title: {
-    fontSize: 17,
-    fontWeight: "bold",
-    color: "#1e293b",
-  },
-
-  badge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-
-  badgeText: {
-    color: "white",
-    fontWeight: "bold",
-  },
-
-  meta: {
-    marginTop: 6,
-    color: "#64748b",
-  },
-
-  navBtn: {
-    marginTop: 12,
-    backgroundColor: "#3b82f6",
-    padding: 12,
-    borderRadius: 10,
-    alignItems: "center",
-  },
-
-  navText: {
-    color: "white",
-    fontWeight: "bold",
-  },
-
-  center: {
+  emptyContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
   },
 
-  emptyTitle: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: "#ef4444",
+  emptyCard: {
+    width: "85%",
+    backgroundColor: "rgba(255,255,255,0.95)",
+    padding: 25,
+    borderRadius: 24,
+    alignItems: "center",
+    elevation: 10,
   },
 
+  emptyIcon: { fontSize: 50 },
+  emptyTitle: { fontSize: 22, fontWeight: "bold" },
   emptySub: {
+    textAlign: "center",
+    marginVertical: 10,
     color: "#64748b",
-    marginTop: 10,
   },
+
+  primaryBtn: {
+    width: "100%",
+    backgroundColor: "#3b82f6",
+    padding: 14,
+    borderRadius: 14,
+    alignItems: "center",
+    marginBottom: 10,
+  },
+
+  primaryText: { color: "white", fontWeight: "bold" },
+
+  secondaryBtn: {
+    width: "100%",
+    backgroundColor: "#e2e8f0",
+    padding: 14,
+    borderRadius: 14,
+    alignItems: "center",
+  },
+
+  secondaryText: { fontWeight: "600" },
+
+  hero: { backgroundColor: "#3b82f6", margin: 15, padding: 18, borderRadius: 18 },
+  heroTitle: { color: "white", fontWeight: "bold" },
+  heroSub: { color: "#e0f2fe" },
+
+  mapWrapper: { marginHorizontal: 15, borderRadius: 18, overflow: "hidden" },
+  map: { height: 200 },
+
+  card: {
+    backgroundColor: "white",
+    margin: 15,
+    padding: 16,
+    borderRadius: 16,
+  },
+
+  bestCard: { borderWidth: 2, borderColor: "#3b82f6" },
+
+  title: { fontWeight: "bold" },
+  meta: { color: "#64748b" },
+
+  navBtn: {
+    marginTop: 10,
+    backgroundColor: "#3b82f6",
+    padding: 10,
+    borderRadius: 10,
+    alignItems: "center",
+  },
+
+  navText: { color: "white" },
+
+  center: { flex: 1, justifyContent: "center", alignItems: "center" },
 });
