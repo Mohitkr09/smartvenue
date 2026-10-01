@@ -1,15 +1,27 @@
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 
-// ================= SCHEMA =================
+// ============================================================
+// USER SCHEMA
+// ============================================================
+
 const userSchema = new mongoose.Schema(
   {
+    // ==========================================================
+    // NAME
+    // ==========================================================
+
     name: {
       type: String,
       required: [true, "Name is required"],
       trim: true,
-      minlength: 2,
+      minlength: [2, "Name must be at least 2 characters"],
+      maxlength: [50, "Name cannot exceed 50 characters"],
     },
+
+    // ==========================================================
+    // EMAIL
+    // ==========================================================
 
     email: {
       type: String,
@@ -23,22 +35,40 @@ const userSchema = new mongoose.Schema(
       ],
     },
 
+    // ==========================================================
+    // PASSWORD
+    // ==========================================================
+
     password: {
       type: String,
       required: [true, "Password is required"],
-      minlength: 6,
-      select: false, // 🔒 never return password by default
+      minlength: [6, "Password must be at least 6 characters"],
+
+      // Password will not be returned by normal queries.
+      select: false,
     },
+
+    // ==========================================================
+    // AVATAR
+    // ==========================================================
 
     avatar: {
       type: String,
       default:
         "https://cdn-icons-png.flaticon.com/512/149/149071.png",
+      trim: true,
     },
+
+    // ==========================================================
+    // ROLE
+    // ==========================================================
 
     role: {
       type: String,
-      enum: ["user", "admin"],
+      enum: {
+        values: ["user", "admin"],
+        message: "Role must be either user or admin",
+      },
       default: "user",
     },
   },
@@ -47,34 +77,64 @@ const userSchema = new mongoose.Schema(
   }
 );
 
+// ============================================================
+// HASH PASSWORD BEFORE SAVE
+// ============================================================
 
-// ================= HASH PASSWORD =================
 userSchema.pre("save", async function (next) {
-  if (!this.isModified("password")) return next();
-
   try {
+    // If password hasn't changed, don't hash again.
+    if (!this.isModified("password")) {
+      return next();
+    }
+
     const salt = await bcrypt.genSalt(10);
-    this.password = await bcrypt.hash(this.password, salt);
+
+    this.password = await bcrypt.hash(
+      this.password,
+      salt
+    );
+
     next();
   } catch (err) {
     next(err);
   }
 });
 
+// ============================================================
+// COMPARE PASSWORD
+// ============================================================
 
-// ================= COMPARE PASSWORD =================
-userSchema.methods.comparePassword = async function (enteredPassword) {
-  return await bcrypt.compare(enteredPassword, this.password);
+userSchema.methods.comparePassword = async function (
+  enteredPassword
+) {
+  if (!this.password) {
+    return false;
+  }
+
+  return bcrypt.compare(
+    enteredPassword,
+    this.password
+  );
 };
 
+// ============================================================
+// REMOVE PASSWORD FROM JSON RESPONSE
+// ============================================================
 
-// ================= REMOVE PASSWORD FROM RESPONSE =================
 userSchema.methods.toJSON = function () {
   const user = this.toObject();
+
   delete user.password;
+
   return user;
 };
 
+// ============================================================
+// EXPORT
+// ============================================================
 
-// ================= EXPORT =================
-module.exports = mongoose.model("User", userSchema);
+module.exports = mongoose.model(
+  "User",
+  userSchema
+);

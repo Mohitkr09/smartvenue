@@ -1,5 +1,6 @@
 import { Tabs } from "expo-router";
 import React from "react";
+import { View, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -11,86 +12,132 @@ export default function TabLayout() {
       screenOptions={{
         headerShown: false,
 
-        // ✅ INSTAGRAM STYLE TAB BAR
+        // ==========================================
+        // TAB BAR
+        // ==========================================
         tabBarStyle: {
+          position: "absolute",
+
+          left: 14,
+          right: 14,
+          bottom: Math.max(insets.bottom, 8),
+
+          height: 68,
+
           backgroundColor: "#ffffff",
-          borderTopWidth: 0.5,
-          borderTopColor: "#e2e8f0",
 
-          height: 60 + insets.bottom,
-          paddingBottom: insets.bottom,
+          borderTopWidth: 0,
+          borderRadius: 22,
 
-          elevation: 8,
+          paddingTop: 7,
+          paddingBottom: 7,
+
+          elevation: 12,
+
+          shadowColor: "#0f172a",
+          shadowOffset: {
+            width: 0,
+            height: 5,
+          },
+          shadowOpacity: 0.12,
+          shadowRadius: 12,
         },
 
-        tabBarActiveTintColor: "#1e293b", // dark active
+        // ==========================================
+        // COLORS
+        // ==========================================
+        tabBarActiveTintColor: "#2563eb",
         tabBarInactiveTintColor: "#94a3b8",
 
+        // ==========================================
+        // LABEL
+        // ==========================================
         tabBarLabelStyle: {
-          fontSize: 11,
-          marginBottom: 3,
+          fontSize: 10,
+          fontWeight: "700",
+          marginTop: 1,
         },
 
+        // ==========================================
+        // TAB ITEM
+        // ==========================================
         tabBarItemStyle: {
-          paddingVertical: 5,
+          height: 60,
+          paddingVertical: 2,
         },
       }}
     >
-      {/* 🏠 HOME */}
+      {/* ==========================================
+          HOME
+      ========================================== */}
       <Tabs.Screen
         name="index"
         options={{
           title: "Home",
+
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons
-              name={focused ? "home" : "home-outline"}
-              size={24}
+            <TabIcon
+              focused={focused}
               color={color}
+              activeIcon="home"
+              inactiveIcon="home-outline"
             />
           ),
         }}
       />
 
-      {/* 🔍 EXPLORE */}
+      {/* ==========================================
+          EXPLORE
+      ========================================== */}
       <Tabs.Screen
         name="explore"
         options={{
           title: "Explore",
+
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons
-              name={focused ? "compass" : "compass-outline"}
-              size={24}
+            <TabIcon
+              focused={focused}
               color={color}
+              activeIcon="compass"
+              inactiveIcon="compass-outline"
             />
           ),
         }}
       />
 
-      {/* 🔔 ALERTS */}
+      {/* ==========================================
+          ALERTS
+      ========================================== */}
       <Tabs.Screen
         name="alerts"
         options={{
           title: "Alerts",
+
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons
-              name={focused ? "notifications" : "notifications-outline"}
-              size={24}
+            <TabIcon
+              focused={focused}
               color={color}
+              activeIcon="notifications"
+              inactiveIcon="notifications-outline"
             />
           ),
         }}
       />
 
-      {/* 👤 PROFILE */}
+      {/* ==========================================
+          PROFILE
+      ========================================== */}
       <Tabs.Screen
         name="profile"
         options={{
           title: "Profile",
+
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons
-              name={focused ? "person" : "person-outline"}
-              size={24}
+            <TabIcon
+              focused={focused}
               color={color}
+              activeIcon="person"
+              inactiveIcon="person-outline"
             />
           ),
         }}
@@ -98,3 +145,54 @@ export default function TabLayout() {
     </Tabs>
   );
 }
+
+// ==================================================
+// TAB ICON
+// ==================================================
+
+function TabIcon({
+  focused,
+  color,
+  activeIcon,
+  inactiveIcon,
+}: {
+  focused: boolean;
+  color: string;
+  activeIcon: keyof typeof Ionicons.glyphMap;
+  inactiveIcon: keyof typeof Ionicons.glyphMap;
+}) {
+  return (
+    <View
+      style={[
+        styles.iconContainer,
+        focused && styles.activeIconContainer,
+      ]}
+    >
+      <Ionicons
+        name={focused ? activeIcon : inactiveIcon}
+        size={focused ? 24 : 23}
+        color={color}
+      />
+    </View>
+  );
+}
+
+// ==================================================
+// STYLES
+// ==================================================
+
+const styles = StyleSheet.create({
+  iconContainer: {
+    width: 44,
+    height: 32,
+
+    justifyContent: "center",
+    alignItems: "center",
+
+    borderRadius: 12,
+  },
+
+  activeIconContainer: {
+    backgroundColor: "#eff6ff",
+  },
+});

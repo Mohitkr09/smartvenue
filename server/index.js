@@ -51,9 +51,23 @@ app.use(morgan("dev"));
 app.use("/auth", authRoutes);
 app.use("/user", userRoutes);
 
-// =======================
+// ============================================================
+// HELPER: CLAMP NUMBER
+// ============================================================
+
+function clamp(value, min, max) {
+  const number = Number(value);
+
+  if (!Number.isFinite(number)) {
+    return min;
+  }
+
+  return Math.max(min, Math.min(max, number));
+}
+
+// ============================================================
 // AI FUNCTION
-// =======================
+// ============================================================
 
 const getPrediction = async (zones) => {
   try {
@@ -62,10 +76,13 @@ const getPrediction = async (zones) => {
       return [];
     }
 
-    // AI_URL should contain only the base URL:
+    // AI_URL should contain only the base URL.
+    //
+    // Example:
     // https://smartvenue-u3vr.onrender.com
     //
     // We add /predict-zones here.
+
     const aiBaseUrl = (
       process.env.AI_URL || "http://127.0.0.1:7000"
     ).replace(/\/+$/, "");
@@ -115,6 +132,10 @@ const getPrediction = async (zones) => {
       return response.data.data;
     }
 
+    if (Array.isArray(response.data)) {
+      return response.data;
+    }
+
     console.log("⚠️ Unexpected AI response format");
 
     return [];
@@ -130,15 +151,12 @@ const getPrediction = async (zones) => {
   }
 };
 
-// =======================
+// ============================================================
 // RISK CALCULATION
-// =======================
+// ============================================================
 
 const calculateRisk = (crowdLevel, waitTime) => {
-  const crowd = Math.max(
-    0,
-    Math.min(100, Number(crowdLevel) || 0)
-  );
+  const crowd = clamp(crowdLevel, 0, 100);
 
   const wait = Math.max(0, Number(waitTime) || 0);
 
@@ -146,14 +164,15 @@ const calculateRisk = (crowdLevel, waitTime) => {
     Crowd contributes 70%
     Waiting time contributes 30%
 
-    Wait time is converted to a score and capped at 100.
+    Wait time is converted to a score
+    and capped at 100.
   */
 
   const waitScore = Math.min(wait * 2, 100);
 
   const riskScore = Math.round(
     crowd * 0.7 +
-    waitScore * 0.3
+      waitScore * 0.3
   );
 
   let riskLevel;
@@ -177,15 +196,12 @@ const calculateRisk = (crowdLevel, waitTime) => {
   };
 };
 
-// =======================
+// ============================================================
 // CROWD STATUS
-// =======================
+// ============================================================
 
 const calculateStatus = (crowdLevel) => {
-  const crowd = Math.max(
-    0,
-    Math.min(100, Number(crowdLevel) || 0)
-  );
+  const crowd = clamp(crowdLevel, 0, 100);
 
   if (crowd > 70) {
     return "High";
@@ -198,9 +214,33 @@ const calculateStatus = (crowdLevel) => {
   return "Smooth";
 };
 
-// =======================
+// ============================================================
+// AI STATUS NORMALIZATION
+// ============================================================
+
+const normalizeAIStatus = (status) => {
+  if (!status) {
+    return "LOW";
+  }
+
+  const value = String(status)
+    .trim()
+    .toUpperCase();
+
+  if (value === "HIGH") {
+    return "HIGH";
+  }
+
+  if (value === "MEDIUM" || value === "MODERATE") {
+    return "MEDIUM";
+  }
+
+  return "LOW";
+};
+
+// ============================================================
 // GATE NAME NORMALIZATION
-// =======================
+// ============================================================
 
 function normalizeGateName(gateId) {
   if (gateId === undefined || gateId === null) {
@@ -219,7 +259,7 @@ function normalizeGateName(gateId) {
   }
 
   // "Gate_A"
-  if (/^Gate_[A-D]$/i.test(value)) {
+  if (/^Gate\_[A-D]$/i.test(value)) {
     return `Gate ${value.slice(-1).toUpperCase()}`;
   }
 
@@ -232,9 +272,31 @@ function normalizeGateName(gateId) {
   return value;
 }
 
-// =======================
+// ============================================================
+// BUILD AI PREDICTION TEXT
+// ============================================================
+
+const buildPredictionText = ({
+  futureCrowd,
+  isBest,
+  suggestion,
+}) => {
+  let predictionText = `Future crowd: ${futureCrowd}%`;
+
+  if (isBest === true) {
+    predictionText += " | Recommended gate";
+  }
+
+  if (suggestion) {
+    predictionText += ` | ${suggestion}`;
+  }
+
+  return predictionText;
+};
+
+// ============================================================
 // ROUTE API
-// =======================
+// ============================================================
 
 app.post("/route", async (req, res) => {
   try {
@@ -299,9 +361,9 @@ app.post("/route", async (req, res) => {
   }
 });
 
-// =======================
+// ============================================================
 // 📡 IOT / YOLO DATA
-// =======================
+// ============================================================
 
 app.post("/iot-data", async (req, res) => {
   try {
@@ -313,9 +375,9 @@ app.post("/iot-data", async (req, res) => {
       timestamp,
     } = req.body;
 
-    // -----------------------
+    // ========================================================
     // VALIDATION
-    // -----------------------
+    // ========================================================
 
     if (!gate_id) {
       return res.status(400).json({
@@ -341,20 +403,17 @@ app.post("/iot-data", async (req, res) => {
       });
     }
 
-    // -----------------------
+    // ========================================================
     // SAFE VALUES
-    // -----------------------
+    // ========================================================
 
-    const safeCrowd = Math.max(
-      0,
-      Math.min(100, crowd)
-    );
+    const safeCrowd = clamp(crowd, 0, 100);
 
     const safeWait = Math.max(0, wait);
 
-    // -----------------------
+    // ========================================================
     // TIME DATA
-    // -----------------------
+    // ========================================================
 
     const now = timestamp
       ? new Date(
@@ -371,9 +430,9 @@ app.post("/iot-data", async (req, res) => {
     const currentHour = validTimestamp.getHours();
     const currentDay = validTimestamp.getDay();
 
-    // -----------------------
+    // ========================================================
     // GATE ID
-    // -----------------------
+    // ========================================================
 
     const normalizedGateId = String(gate_id).trim();
 
@@ -388,26 +447,26 @@ app.post("/iot-data", async (req, res) => {
       });
     }
 
-    // -----------------------
+    // ========================================================
     // RISK
-    // -----------------------
+    // ========================================================
 
     const risk = calculateRisk(
       safeCrowd,
       safeWait
     );
 
-    // -----------------------
+    // ========================================================
     // STATUS
-    // -----------------------
+    // ========================================================
 
     const status = calculateStatus(
       safeCrowd
     );
 
-    // -----------------------
-    // CREATE LOG
-    // -----------------------
+    // ========================================================
+    // CREATE ZONE LOG
+    // ========================================================
 
     const logData = {
       gate_id: normalizedGateId,
@@ -426,9 +485,9 @@ app.post("/iot-data", async (req, res) => {
       }`
     );
 
-    // -----------------------
+    // ========================================================
     // UPDATE CURRENT ZONE
-    // -----------------------
+    // ========================================================
 
     const updatedZone =
       await Zone.findOneAndUpdate(
@@ -459,9 +518,9 @@ app.post("/iot-data", async (req, res) => {
       });
     }
 
-    // =======================
+    // ========================================================
     // GET LATEST LOG PER GATE
-    // =======================
+    // ========================================================
 
     const latestLogs =
       await ZoneLog.aggregate([
@@ -485,14 +544,15 @@ app.post("/iot-data", async (req, res) => {
         },
       ]);
 
-    // =======================
+    // ========================================================
     // PREPARE AI INPUT
-    // =======================
+    // ========================================================
 
     /*
       Use the current request time for every gate.
 
       This avoids having:
+
       Gate A → hour 12
       Gate B → hour 0
       Gate C → hour 0
@@ -514,9 +574,9 @@ app.post("/iot-data", async (req, res) => {
     console.log(aiZones);
     console.log("========================================");
 
-    // =======================
+    // ========================================================
     // AI PREDICTION
-    // =======================
+    // ========================================================
 
     const prediction = await getPrediction(
       aiZones
@@ -524,9 +584,9 @@ app.post("/iot-data", async (req, res) => {
 
     console.log("🧠 AI Prediction:", prediction);
 
-    // =======================
+    // ========================================================
     // SAVE AI PREDICTION
-    // =======================
+    // ========================================================
 
     if (
       Array.isArray(prediction) &&
@@ -541,10 +601,9 @@ app.post("/iot-data", async (req, res) => {
           continue;
         }
 
-        // Normalize:
-        // A → Gate A
-        // Gate A → Gate A
-        // Gate_A → Gate A
+        // ====================================================
+        // NORMALIZE GATE NAME
+        // ====================================================
 
         const predictionGateName =
           normalizeGateName(p.id);
@@ -553,33 +612,54 @@ app.post("/iot-data", async (req, res) => {
           continue;
         }
 
-        /*
-          IMPORTANT:
-          The AI response uses:
+        // ====================================================
+        // AI VALUES
+        // ====================================================
 
-          futureCrowd
-          status
-          suggestion
-          score
-          isBest
-
-          It does NOT use `prediction`.
-
-          Therefore we store a readable prediction
-          string in MongoDB.
-        */
-
-        const futureCrowd = Number(
-          p.futureCrowd ?? p.crowdLevel ?? 0
+        const futureCrowd = clamp(
+          p.futureCrowd ??
+            p.crowdLevel ??
+            0,
+          0,
+          100
         );
 
-        const currentCrowd = Number(
-          p.crowdLevel ?? 0
+        const currentCrowd = clamp(
+          p.crowdLevel ??
+            0,
+          0,
+          100
         );
 
-        const predictionWait = Number(
-          p.waitTime ?? 0
+        const predictionWait = Math.max(
+          0,
+          Number(p.waitTime ?? 0)
         );
+
+        // AI score
+        const aiScore = clamp(
+          p.score ?? 0,
+          0,
+          100
+        );
+
+        // AI status
+        const aiStatus =
+          normalizeAIStatus(p.status);
+
+        // AI suggestion
+        const aiSuggestion =
+          p.suggestion
+            ? String(p.suggestion)
+            : "";
+
+        // AI best gate
+        const aiIsBest =
+          p.isBest === true;
+
+        // ====================================================
+        // CURRENT RISK
+        // ====================================================
 
         const predictionRisk =
           calculateRisk(
@@ -587,21 +667,29 @@ app.post("/iot-data", async (req, res) => {
             predictionWait
           );
 
+        // ====================================================
+        // CURRENT CROWD STATUS
+        // ====================================================
+
         const predictionStatus =
-          calculateStatus(currentCrowd);
+          calculateStatus(
+            currentCrowd
+          );
 
-        let predictionText =
-          `Future crowd: ${futureCrowd}%`;
+        // ====================================================
+        // READABLE PREDICTION
+        // ====================================================
 
-        if (p.isBest === true) {
-          predictionText +=
-            " | Recommended gate";
-        }
+        const predictionText =
+          buildPredictionText({
+            futureCrowd,
+            isBest: aiIsBest,
+            suggestion: aiSuggestion,
+          });
 
-        if (p.suggestion) {
-          predictionText +=
-            ` | ${p.suggestion}`;
-        }
+        // ====================================================
+        // UPDATE ZONE WITH STRUCTURED AI DATA
+        // ====================================================
 
         const updatedPrediction =
           await Zone.findOneAndUpdate(
@@ -609,18 +697,41 @@ app.post("/iot-data", async (req, res) => {
               name: predictionGateName,
             },
             {
-              prediction: predictionText,
+              // --------------------------------------------
+              // Human-readable prediction
+              // --------------------------------------------
 
-              // Keep current crowd values from MongoDB.
-              // Do NOT replace current crowd with future crowd.
-              //
-              // current crowd:
-              // p.crowdLevel
-              //
-              // future crowd:
-              // prediction string
+              prediction:
+                predictionText,
 
-              status: predictionStatus,
+              // --------------------------------------------
+              // AI STRUCTURED DATA
+              // --------------------------------------------
+
+              futureCrowd,
+
+              aiScore,
+
+              aiStatus,
+
+              aiSuggestion,
+
+              aiIsBest,
+
+              // --------------------------------------------
+              // IMPORTANT:
+              // Keep current crowd separate from future crowd.
+              // --------------------------------------------
+
+              // Current crowd remains the existing
+              // MongoDB crowdLevel.
+
+              // --------------------------------------------
+              // Current status/risk
+              // --------------------------------------------
+
+              status:
+                predictionStatus,
 
               riskScore:
                 predictionRisk.riskScore,
@@ -636,11 +747,18 @@ app.post("/iot-data", async (req, res) => {
             }
           );
 
+        // ====================================================
+        // LOG RESULT
+        // ====================================================
+
         if (updatedPrediction) {
           console.log(
-            `✅ ${predictionGateName} → Future Crowd: ${futureCrowd}% | Score: ${
-              p.score ?? "N/A"
-            } | Best: ${p.isBest === true}`
+            `✅ ${predictionGateName} → ` +
+            `Current Crowd: ${currentCrowd}% | ` +
+            `Future Crowd: ${futureCrowd}% | ` +
+            `AI Score: ${aiScore} | ` +
+            `AI Status: ${aiStatus} | ` +
+            `Best: ${aiIsBest}`
           );
         } else {
           console.log(
@@ -654,9 +772,9 @@ app.post("/iot-data", async (req, res) => {
       );
     }
 
-    // =======================
+    // ========================================================
     // GET FINAL ZONES
-    // =======================
+    // ========================================================
 
     const finalZones =
       await Zone.find()
@@ -665,9 +783,9 @@ app.post("/iot-data", async (req, res) => {
         })
         .lean();
 
-    // =======================
+    // ========================================================
     // REAL-TIME SOCKET UPDATE
-    // =======================
+    // ========================================================
 
     io.emit(
       "zoneUpdate",
@@ -678,24 +796,32 @@ app.post("/iot-data", async (req, res) => {
       "📡 zoneUpdate emitted"
     );
 
-    // =======================
+    // ========================================================
     // RESPONSE
-    // =======================
+    // ========================================================
 
     return res.json({
       success: true,
+
       gate: gateName,
+
       crowdLevel: safeCrowd,
+
       waitTime: safeWait,
+
       status,
+
       riskScore: risk.riskScore,
+
       riskLevel: risk.riskLevel,
-      aiPredictionCount: Array.isArray(prediction)
-        ? prediction.length
-        : 0,
+
+      aiPredictionCount:
+        Array.isArray(prediction)
+          ? prediction.length
+          : 0,
+
       zones: finalZones,
     });
-
   } catch (err) {
     console.error(
       "❌ IoT error:",
@@ -710,9 +836,9 @@ app.post("/iot-data", async (req, res) => {
   }
 });
 
-// =======================
-// 📍 GET ZONES
-// =======================
+// ============================================================
+// 📍 GET ALL ZONES
+// ============================================================
 
 app.get("/zones", async (req, res) => {
   try {
@@ -737,9 +863,9 @@ app.get("/zones", async (req, res) => {
   }
 });
 
-// =======================
+// ============================================================
 // 📍 GET SINGLE ZONE
-// =======================
+// ============================================================
 
 app.get(
   "/zones/:name",
@@ -758,7 +884,6 @@ app.get(
       }
 
       return res.json(zone);
-
     } catch (err) {
       console.error(
         "❌ Single zone error:",
@@ -773,17 +898,20 @@ app.get(
   }
 );
 
-// =======================
+// ============================================================
 // ❤️ HEALTH CHECK
-// =======================
+// ============================================================
 
 app.get("/", (req, res) => {
   res.json({
     status: "running",
+
     service: "SmartVenue Backend",
+
     ai:
       process.env.AI_URL ||
       "local",
+
     mongodb:
       mongoose.connection.readyState === 1
         ? "connected"
@@ -791,9 +919,9 @@ app.get("/", (req, res) => {
   });
 });
 
-// =======================
+// ============================================================
 // 🧠 DATABASE
-// =======================
+// ============================================================
 
 async function connectDB() {
   try {
@@ -815,7 +943,6 @@ async function connectDB() {
     );
 
     await seedZones();
-
   } catch (err) {
     console.error(
       "❌ DB error:",
@@ -826,9 +953,9 @@ async function connectDB() {
   }
 }
 
-// =======================
+// ============================================================
 // 🌱 SEED ZONES
-// =======================
+// ============================================================
 
 async function seedZones() {
   const zones = [
@@ -866,13 +993,45 @@ async function seedZones() {
 
       await Zone.create({
         ...zone,
+
         crowdLevel: 0,
+
         waitTime: 0,
+
+        // --------------------------------------------
+        // AI
+        // --------------------------------------------
+
         prediction: "Analyzing...",
+
+        futureCrowd: 0,
+
+        aiScore: 0,
+
+        aiStatus: "LOW",
+
+        aiSuggestion: "",
+
+        aiIsBest: false,
+
+        // --------------------------------------------
+        // Current status
+        // --------------------------------------------
+
         status: "Smooth",
-        riskScore: risk.riskScore,
-        riskLevel: risk.riskLevel,
-        riskReason: risk.riskReason,
+
+        // --------------------------------------------
+        // Risk
+        // --------------------------------------------
+
+        riskScore:
+          risk.riskScore,
+
+        riskLevel:
+          risk.riskLevel,
+
+        riskReason:
+          risk.riskReason,
       });
 
       console.log(
@@ -880,11 +1039,19 @@ async function seedZones() {
       );
     } else {
       /*
-        Do not reset crowdLevel,
-        waitTime or predictions.
+        Do not reset:
 
-        Only ensure coordinates
-        remain correct.
+        crowdLevel
+        waitTime
+        prediction
+        futureCrowd
+        aiScore
+        aiStatus
+        aiSuggestion
+        aiIsBest
+        risk information
+
+        Only ensure coordinates remain correct.
       */
 
       await Zone.updateOne(
@@ -904,16 +1071,16 @@ async function seedZones() {
   );
 }
 
-// =======================
+// ============================================================
 // 🔌 HTTP SERVER
-// =======================
+// ============================================================
 
 const server =
   http.createServer(app);
 
-// =======================
+// ============================================================
 // 🔌 SOCKET.IO
-// =======================
+// ============================================================
 
 const io =
   new Server(server, {
@@ -926,9 +1093,9 @@ const io =
     },
   });
 
-// =======================
+// ============================================================
 // SOCKET CONNECTION
-// =======================
+// ============================================================
 
 io.on(
   "connection",
@@ -938,7 +1105,10 @@ io.on(
       socket.id
     );
 
+    // --------------------------------------------------------
     // Send current zones immediately
+    // --------------------------------------------------------
+
     Zone.find()
       .sort({
         name: 1,
@@ -957,6 +1127,10 @@ io.on(
         );
       });
 
+    // --------------------------------------------------------
+    // Disconnect
+    // --------------------------------------------------------
+
     socket.on(
       "disconnect",
       () => {
@@ -969,9 +1143,9 @@ io.on(
   }
 );
 
-// =======================
+// ============================================================
 // 🚀 START SERVER
-// =======================
+// ============================================================
 
 const PORT =
   process.env.PORT || 5000;
@@ -992,15 +1166,15 @@ const PORT =
       );
 
       console.log(
-        `🌐 Server started successfully`
+        "🌐 Server started successfully"
       );
 
       console.log(
-        `📍 Zones endpoint: /zones`
+        "📍 Zones endpoint: /zones"
       );
 
       console.log(
-        `❤️ Health endpoint: /`
+        "❤️ Health endpoint: /"
       );
 
       console.log(

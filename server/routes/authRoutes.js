@@ -6,7 +6,7 @@ const {
   login,
 } = require("../controllers/authController");
 
-// Routes
+// Public authentication routes
 router.post("/register", register);
 router.post("/login", login);
 

@@ -1,9 +1,22 @@
 const User = require("../models/User");
 
-// ================= GET PROFILE =================
+// ============================================================
+// 📄 GET USER PROFILE
+// ============================================================
+
 const getProfile = async (req, res) => {
   try {
-    const user = await User.findById(req.user.id).select("-password");
+    // --------------------------------------------------------
+    // Find logged-in user
+    // --------------------------------------------------------
+
+    const user = await User.findById(
+      req.user.id
+    ).select("-password");
+
+    // --------------------------------------------------------
+    // User not found
+    // --------------------------------------------------------
 
     if (!user) {
       return res.status(404).json({
@@ -12,25 +25,43 @@ const getProfile = async (req, res) => {
       });
     }
 
-    res.status(200).json({
+    // --------------------------------------------------------
+    // Response
+    // --------------------------------------------------------
+
+    return res.status(200).json({
       success: true,
       user,
     });
   } catch (err) {
-    console.error("Profile Error:", err.message);
-    res.status(500).json({
+    console.error(
+      "❌ Profile Error:",
+      err.message
+    );
+
+    return res.status(500).json({
       success: false,
       message: "Server Error",
     });
   }
 };
 
-// ================= UPDATE PROFILE =================
+// ============================================================
+// ✏️ UPDATE USER PROFILE
+// ============================================================
+
 const updateProfile = async (req, res) => {
   try {
-    const { name, email, avatar } = req.body;
+    const {
+      name,
+      email,
+      avatar,
+    } = req.body;
 
-    // 🔒 VALIDATION
+    // ========================================================
+    // VALIDATION
+    // ========================================================
+
     if (!name || !email) {
       return res.status(400).json({
         success: false,
@@ -38,8 +69,49 @@ const updateProfile = async (req, res) => {
       });
     }
 
-    // 🔍 CHECK USER
-    const user = await User.findById(req.user.id);
+    const trimmedName = name.trim();
+
+    const normalizedEmail =
+      email.trim().toLowerCase();
+
+    // --------------------------------------------------------
+    // Name validation
+    // --------------------------------------------------------
+
+    if (trimmedName.length < 2) {
+      return res.status(400).json({
+        success: false,
+        message: "Name must be at least 2 characters",
+      });
+    }
+
+    if (trimmedName.length > 50) {
+      return res.status(400).json({
+        success: false,
+        message: "Name cannot exceed 50 characters",
+      });
+    }
+
+    // --------------------------------------------------------
+    // Email validation
+    // --------------------------------------------------------
+
+    const emailRegex =
+      /^\S+@\S+\.\S+$/;
+
+    if (!emailRegex.test(normalizedEmail)) {
+      return res.status(400).json({
+        success: false,
+        message: "Please use a valid email address",
+      });
+    }
+
+    // ========================================================
+    // FIND CURRENT USER
+    // ========================================================
+
+    const user =
+      await User.findById(req.user.id);
 
     if (!user) {
       return res.status(404).json({
@@ -48,9 +120,20 @@ const updateProfile = async (req, res) => {
       });
     }
 
-    // 🔁 CHECK EMAIL DUPLICATE
-    if (email !== user.email) {
-      const existingUser = await User.findOne({ email });
+    // ========================================================
+    // CHECK EMAIL DUPLICATE
+    // ========================================================
+
+    if (
+      normalizedEmail !== user.email
+    ) {
+      const existingUser =
+        await User.findOne({
+          email: normalizedEmail,
+          _id: {
+            $ne: user._id,
+          },
+        });
 
       if (existingUser) {
         return res.status(400).json({
@@ -60,34 +143,77 @@ const updateProfile = async (req, res) => {
       }
     }
 
-    // 🔄 UPDATE FIELDS
-    user.name = name;
-    user.email = email;
+    // ========================================================
+    // UPDATE BASIC INFORMATION
+    // ========================================================
 
-    if (avatar) {
-      user.avatar = avatar; // can be URL or base64
+    user.name = trimmedName;
+
+    user.email =
+      normalizedEmail;
+
+    // ========================================================
+    // UPDATE AVATAR
+    // ========================================================
+
+    if (
+      avatar !== undefined &&
+      avatar !== null &&
+      String(avatar).trim() !== ""
+    ) {
+      user.avatar =
+        String(avatar).trim();
     }
+
+    // ========================================================
+    // SAVE USER
+    // ========================================================
 
     await user.save();
 
-    // REMOVE PASSWORD
-    const updatedUser = user.toObject();
+    // ========================================================
+    // REMOVE PASSWORD FROM RESPONSE
+    // ========================================================
+
+    const updatedUser =
+      user.toObject();
+
     delete updatedUser.password;
 
-    res.status(200).json({
+    // ========================================================
+    // RESPONSE
+    // ========================================================
+
+    return res.status(200).json({
       success: true,
-      message: "Profile updated successfully",
+      message:
+        "Profile updated successfully",
       user: updatedUser,
     });
   } catch (err) {
-    console.error("Update Error:", err.message);
+    console.error(
+      "❌ Update Profile Error:",
+      err.message
+    );
 
-    res.status(500).json({
+    // MongoDB duplicate key
+    if (err.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: "Email already in use",
+      });
+    }
+
+    return res.status(500).json({
       success: false,
       message: "Server Error",
     });
   }
 };
+
+// ============================================================
+// EXPORT
+// ============================================================
 
 module.exports = {
   getProfile,

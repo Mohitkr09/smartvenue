@@ -2,9 +2,18 @@ const jwt = require("jsonwebtoken");
 
 module.exports = async (req, res, next) => {
   try {
+    // 🔐 JWT secret must be configured
+    if (!process.env.JWT_SECRET) {
+      console.error("JWT_SECRET is not configured");
+      return res.status(500).json({
+        success: false,
+        message: "Server authentication configuration error",
+      });
+    }
+
+    // 🔒 Get Authorization header
     const authHeader = req.headers.authorization;
 
-    // 🔒 CHECK HEADER EXISTS
     if (!authHeader) {
       return res.status(401).json({
         success: false,
@@ -12,7 +21,7 @@ module.exports = async (req, res, next) => {
       });
     }
 
-    // 🔒 CHECK FORMAT: Bearer TOKEN
+    // 🔒 Expected format: Bearer TOKEN
     if (!authHeader.startsWith("Bearer ")) {
       return res.status(401).json({
         success: false,
@@ -20,9 +29,9 @@ module.exports = async (req, res, next) => {
       });
     }
 
-    const token = authHeader.split(" ")[1];
+    // 🔑 Extract token
+    const token = authHeader.substring(7).trim();
 
-    // 🔒 CHECK TOKEN EXISTS
     if (!token) {
       return res.status(401).json({
         success: false,
@@ -30,13 +39,10 @@ module.exports = async (req, res, next) => {
       });
     }
 
-    // 🔐 VERIFY TOKEN
-    const decoded = jwt.verify(
-      token,
-      process.env.JWT_SECRET || "secret123"
-    );
+    // 🔐 Verify token
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // EXPECTING: { id: userId }
+    // 🔎 Validate payload
     if (!decoded.id) {
       return res.status(401).json({
         success: false,
@@ -44,14 +50,16 @@ module.exports = async (req, res, next) => {
       });
     }
 
-    // ✅ ATTACH USER
-    req.user = { id: decoded.id };
+    // ✅ Attach authenticated user
+    req.user = {
+      id: decoded.id,
+      role: decoded.role || "user",
+    };
 
     next();
   } catch (err) {
     console.error("Auth Middleware Error:", err.message);
 
-    // 🔥 HANDLE TOKEN EXPIRED
     if (err.name === "TokenExpiredError") {
       return res.status(401).json({
         success: false,
@@ -59,10 +67,16 @@ module.exports = async (req, res, next) => {
       });
     }
 
-    // 🔥 HANDLE INVALID TOKEN
+    if (err.name === "JsonWebTokenError") {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid token",
+      });
+    }
+
     return res.status(401).json({
       success: false,
-      message: "Invalid token",
+      message: "Authentication failed",
     });
   }
 };
