@@ -2,277 +2,490 @@ require("dotenv").config();
 
 const { Kafka, logLevel } = require("kafkajs");
 const axios = require("axios");
-const Redis = require("ioredis");
-const mongoose = require("mongoose");
 
 // ==============================
-// 🧠 CONFIG
+// CONFIG
 // ==============================
 
-const BROKER = process.env.KAFKA_BROKER || "localhost:9092";
-const AI_URL = process.env.AI_URL || "http://localhost:7000/predict-zones";
-const REDIS_URL = process.env.REDIS_URL;
-const MONGO_URI = process.env.MONGO_URI;
+const BROKER =
+  process.env.KAFKA_BROKER || "localhost:9092";
 
-console.log("🔥 Kafka:", BROKER);
-console.log("🤖 AI:", AI_URL);
+const KAFKA_TOPIC =
+  process.env.KAFKA_TOPIC || "zone-updates";
 
-// ==============================
-// 🧠 MONGO CONNECT
-// ==============================
+const KAFKA_GROUP =
+  process.env.KAFKA_GROUP || "smartvenue-zone-consumer";
 
-mongoose.connect(MONGO_URI)
-  .then(() => console.log("✅ Mongo Connected"))
-  .catch(err => console.log("❌ Mongo Error:", err.message));
+const BACKEND_URL =
+  process.env.BACKEND_URL ||
+  "http://127.0.0.1:5000";
 
-// ==============================
-// 🧠 SCHEMA
-// ==============================
-
-const zoneLogSchema = new mongoose.Schema({
-  gate_id: String,
-  crowdLevel: Number,
-  waitTime: Number,
-  hour: Number,
-  day: Number,
-  timestamp: Date,
-});
-
-// ⚠️ IMPORTANT: collection name must match MongoDB EXACTLY
-const ZoneLog = mongoose.model("zonelogs", zoneLogSchema);
+console.log("========================================");
+console.log("🚀 SmartVenue Kafka Consumer");
+console.log("========================================");
+console.log("🔥 Kafka Broker:", BROKER);
+console.log("📡 Kafka Topic:", KAFKA_TOPIC);
+console.log("👥 Consumer Group:", KAFKA_GROUP);
+console.log("🌐 Backend:", BACKEND_URL);
+console.log("========================================");
 
 // ==============================
-// 🧠 KAFKA
+// KAFKA
 // ==============================
 
 const kafka = new Kafka({
-  clientId: "smart-venue",
+  clientId: "smart-venue-consumer",
+
   brokers: [BROKER],
+
   logLevel: logLevel.NOTHING,
 });
 
 // ==============================
-// 🧠 REDIS (SAFE)
-// ==============================
-
-let redis = null;
-
-if (REDIS_URL) {
-  try {
-    redis = new Redis(REDIS_URL, { tls: {} });
-
-    redis.on("connect", () => console.log("✅ Redis Connected"));
-
-    redis.on("error", (err) => {
-      console.log("⚠️ Redis disabled:", err.message);
-      redis = null;
-    });
-
-  } catch {
-    console.log("⚠️ Redis not available");
-  }
-}
-
-// ==============================
-// 🧠 STATE
+// STATE
 // ==============================
 
 let consumer = null;
+
 let isRunning = false;
+
 let isConnecting = false;
 
-let zoneBuffer = {};
-let lastEmit = Date.now();
-const EMIT_INTERVAL = 1500;
-
 // ==============================
-// 🔁 SAFE PARSE
+// SAFE JSON PARSER
 // ==============================
 
 const safeParse = (data) => {
   try {
     return JSON.parse(data);
-  } catch {
+  } catch (err) {
+    console.log(
+      "⚠️ Invalid JSON received from Kafka"
+    );
+
     return null;
   }
 };
 
 // ==============================
-// 🤖 CALL AI
+// NORMALIZE GATE ID
 // ==============================
 
-const callAI = async (zones) => {
+const normalizeGateId = (gateId) => {
+  if (gateId === undefined || gateId === null) {
+    return null;
+  }
+
+  let id = String(gateId).trim();
+
+  if (!id) {
+    return null;
+  }
+
+  /*
+    Supported:
+
+    A
+    B
+    C
+    D
+
+    Gate A
+    Gate B
+    Gate C
+    Gate D
+  */
+
+  if (
+    id.toLowerCase().startsWith("gate ")
+  ) {
+    return id.substring(5).trim();
+  }
+
+  return id;
+};
+
+// ==============================
+// VALIDATE DATA
+// ==============================
+
+const validateData = (data) => {
+  if (!data || typeof data !== "object") {
+    return {
+      valid: false,
+      error: "Invalid message",
+    };
+  }
+
+  const gateId =
+    normalizeGateId(data.gate_id);
+
+  if (!gateId) {
+    return {
+      valid: false,
+      error: "gate_id is missing",
+    };
+  }
+
+  const crowdLevel =
+    Number(data.crowdLevel);
+
+  const waitTime =
+    Number(data.waitTime ?? 0);
+
+  if (Number.isNaN(crowdLevel)) {
+    return {
+      valid: false,
+      error: "crowdLevel must be a number",
+    };
+  }
+
+  if (Number.isNaN(waitTime)) {
+    return {
+      valid: false,
+      error: "waitTime must be a number",
+    };
+  }
+
+  return {
+    valid: true,
+
+    data: {
+      gate_id: gateId,
+
+      crowdLevel: Math.max(
+        0,
+        Math.min(100, crowdLevel)
+      ),
+
+      waitTime: Math.max(
+        0,
+        waitTime
+      ),
+
+      device_id:
+        data.device_id ||
+        "kafka-device",
+
+      timestamp:
+        data.timestamp ||
+        new Date().toISOString(),
+    },
+  };
+};
+
+// ==============================
+// SEND DATA TO BACKEND
+// ==============================
+
+const sendToBackend = async (data) => {
   try {
-    const res = await axios.post(AI_URL, { zones }, { timeout: 3000 });
+    console.log(
+      `📡 Sending ${data.gate_id} to backend...`
+    );
 
-    console.log("🤖 AI Response:", res.data);
+    const response =
+      await axios.post(
+        `${BACKEND_URL}/iot-data`,
+        data,
+        {
+          timeout: 8000,
 
-    return res.data?.data || zones;
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+        }
+      );
 
+    console.log(
+      `✅ Backend accepted Gate ${data.gate_id}`
+    );
+
+    return response.data;
   } catch (err) {
-    console.log("⚠️ AI fallback:", err.message);
-    return zones;
+    if (err.response) {
+      console.log(
+        "❌ Backend error:",
+        err.response.status,
+        err.response.data
+      );
+    } else {
+      console.log(
+        "❌ Backend connection error:",
+        err.message
+      );
+    }
+
+    throw err;
   }
 };
 
 // ==============================
-// 📡 PROCESS & EMIT
+// PROCESS KAFKA MESSAGE
 // ==============================
 
-const processAndEmit = async (io) => {
+const processMessage = async (
+  message
+) => {
   try {
-    const zones = Object.values(zoneBuffer);
-    if (!zones.length) return;
-
-    console.log("📊 Zones:", zones);
-
-    const result = await callAI(zones);
-
-    // Redis (optional)
-    if (redis) {
-      try {
-        await redis.set("latest_zones", JSON.stringify(result), "EX", 10);
-      } catch {}
+    if (!message?.value) {
+      return;
     }
 
-    // Socket
-    if (io) {
-      io.emit("zoneUpdate", result);
+    const rawData =
+      message.value.toString();
+
+    console.log(
+      "\n📥 Kafka message:",
+      rawData
+    );
+
+    const data =
+      safeParse(rawData);
+
+    if (!data) {
+      return;
     }
 
-    console.log("📤 Sent to app");
+    // ------------------------------
+    // VALIDATE
+    // ------------------------------
 
+    const validation =
+      validateData(data);
+
+    if (!validation.valid) {
+      console.log(
+        "⚠️ Invalid Kafka data:",
+        validation.error
+      );
+
+      return;
+    }
+
+    const cleanData =
+      validation.data;
+
+    console.log(
+      "✅ Clean data:",
+      cleanData
+    );
+
+    // ------------------------------
+    // SEND TO EXPRESS BACKEND
+    // ------------------------------
+
+    await sendToBackend(
+      cleanData
+    );
+
+    console.log(
+      `📤 Gate ${cleanData.gate_id} processed successfully`
+    );
   } catch (err) {
-    console.log("❌ Process Error:", err.message);
+    console.log(
+      "❌ Message processing error:",
+      err.message
+    );
+
+    /*
+      Throwing the error allows KafkaJS
+      to handle the failed message according
+      to its consumer behavior.
+    */
+
+    throw err;
   }
 };
 
 // ==============================
-// 🚀 START CONSUMER
+// START CONSUMER
 // ==============================
 
-const startConsumer = async (io) => {
-  if (isRunning || isConnecting) return;
+const startConsumer = async () => {
+  if (
+    isRunning ||
+    isConnecting
+  ) {
+    console.log(
+      "⚠️ Consumer already running/connecting"
+    );
+
+    return;
+  }
 
   try {
     isConnecting = true;
 
-    consumer = kafka.consumer({ groupId: "zone-group" });
+    // ------------------------------
+    // CREATE CONSUMER
+    // ------------------------------
+
+    consumer =
+      kafka.consumer({
+        groupId: KAFKA_GROUP,
+
+        // Prevent one slow message from
+        // causing unnecessary rebalancing
+        sessionTimeout: 30000,
+
+        heartbeatInterval: 3000,
+      });
+
+    // ------------------------------
+    // CONNECT
+    // ------------------------------
 
     await consumer.connect();
-    console.log("✅ Kafka Connected");
+
+    console.log(
+      "✅ Kafka connected"
+    );
+
+    // ------------------------------
+    // SUBSCRIBE
+    // ------------------------------
 
     await consumer.subscribe({
-      topic: "zone-updates",
+      topic: KAFKA_TOPIC,
+
       fromBeginning: false,
     });
 
-    console.log("📡 Subscribed to zone-updates");
+    console.log(
+      `📡 Subscribed to ${KAFKA_TOPIC}`
+    );
 
     isRunning = true;
+
     isConnecting = false;
+
+    // ------------------------------
+    // RUN
+    // ------------------------------
 
     await consumer.run({
-      eachMessage: async ({ message }) => {
-        try {
-          if (!message?.value) return;
+      autoCommit: true,
 
-          const data = safeParse(message.value.toString());
-          if (!data) return;
+      eachMessage: async ({
+        topic,
+        partition,
+        message,
+      }) => {
+        console.log(
+          `\n📨 Topic: ${topic}`
+        );
 
-          console.log("📥 Kafka:", data);
+        console.log(
+          `📍 Partition: ${partition}`
+        );
 
-          const gateId = data.gate_id || "A";
-          const now = new Date();
+        console.log(
+          `🔢 Offset: ${message.offset}`
+        );
 
-          // ==============================
-          // 💾 SAVE TO MONGO (FIXED)
-          // ==============================
-
-          try {
-            await ZoneLog.create({
-              gate_id: gateId,
-              crowdLevel: Number(data.crowdLevel || 0),
-              waitTime: Number(data.waitTime || 0),
-              hour: now.getHours(),
-              day: now.getDay(),
-              timestamp: now,
-            });
-
-            console.log("💾 Saved to Mongo:", gateId);
-
-          } catch (err) {
-            console.log("❌ Mongo Save Error:", err.message);
-          }
-
-          // ==============================
-          // 🧠 BUFFER
-          // ==============================
-
-          zoneBuffer[gateId] = {
-            id: gateId,
-            crowdLevel: Number(data.crowdLevel || 0),
-            waitTime: Number(data.waitTime || 0),
-            distance: 100 + Math.floor(Math.random() * 200),
-            hour: now.getHours(),
-            day: now.getDay(),
-          };
-
-          // ==============================
-          // ⏱ BATCH EMIT
-          // ==============================
-
-          if (Date.now() - lastEmit >= EMIT_INTERVAL) {
-            await processAndEmit(io);
-            zoneBuffer = {};
-            lastEmit = Date.now();
-          }
-
-        } catch (err) {
-          console.log("❌ Message Error:", err.message);
-        }
+        await processMessage(
+          message
+        );
       },
     });
-
   } catch (err) {
-    console.log("❌ Consumer Error:", err.message);
+    console.log(
+      "❌ Kafka Consumer Error:",
+      err.message
+    );
 
     isRunning = false;
+
     isConnecting = false;
 
+    consumer = null;
+
+    // ------------------------------
+    // AUTO RESTART
+    // ------------------------------
+
+    console.log(
+      "🔄 Consumer restarting in 5 seconds..."
+    );
+
     setTimeout(() => {
-      console.log("🔄 Restarting consumer...");
-      startConsumer(io);
+      startConsumer();
     }, 5000);
   }
 };
 
 // ==============================
-// 🔌 DISCONNECT
+// DISCONNECT
 // ==============================
 
-const disconnectConsumer = async () => {
-  try {
-    if (consumer) {
-      await consumer.disconnect();
+const disconnectConsumer =
+  async () => {
+    try {
+      if (consumer) {
+        await consumer.disconnect();
 
-      if (redis) await redis.quit();
-
-      await mongoose.disconnect();
-
-      console.log("🔌 Disconnected");
+        console.log(
+          "🔌 Kafka consumer disconnected"
+        );
+      }
 
       consumer = null;
+
       isRunning = false;
+
       isConnecting = false;
+    } catch (err) {
+      console.log(
+        "❌ Consumer disconnect error:",
+        err.message
+      );
     }
-  } catch (err) {
-    console.log("❌ Disconnect Error:", err.message);
-  }
-};
+  };
 
 // ==============================
-// 📤 EXPORT
+// GRACEFUL SHUTDOWN
+// ==============================
+
+process.on(
+  "SIGINT",
+  async () => {
+    console.log(
+      "\n🛑 Shutting down..."
+    );
+
+    await disconnectConsumer();
+
+    process.exit(0);
+  }
+);
+
+process.on(
+  "SIGTERM",
+  async () => {
+    console.log(
+      "\n🛑 SIGTERM received..."
+    );
+
+    await disconnectConsumer();
+
+    process.exit(0);
+  }
+);
+
+// ==============================
+// START WHEN FILE IS RUN DIRECTLY
+// ==============================
+
+if (
+  require.main === module
+) {
+  startConsumer();
+}
+
+// ==============================
+// EXPORT
 // ==============================
 
 module.exports = {
