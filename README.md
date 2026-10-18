@@ -12,9 +12,7 @@ location data, and smart gate recommendations.</strong>{=html}
 <img src="https://img.shields.io/badge/YOLOv8-Computer_Vision-111F68?style=for-the-badge" alt="YOLOv8" />{=html}
 <img src="https://img.shields.io/badge/AWS-Cloud-232F3E?style=for-the-badge&logo=amazonwebservices&logoColor=white" alt="AWS" />{=html}
 </p>
-<p align="center">
-<a href="YOUR_DEPLOYED_APP_OR_DEMO_URL">{=html}🌐 Live
-Demo</a>{=html} · <a href="YOUR_GITHUB_REPOSITORY_URL">{=html}📂
+<p align="center"> <a href="YOUR_GITHUB_REPOSITORY_URL">{=html}📂
 Source Code</a>{=html}
 </p>
 
